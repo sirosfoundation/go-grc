@@ -34,7 +34,8 @@ var (
 	controlURL  map[string]string
 	eudiReqURL  map[string]string
 	isoCtrlURL  map[string]string
-	gdprItemURL map[string]string
+	gdprItemURL    map[string]string
+	asvsSectionURL map[string]string
 )
 
 func run(root string) error {
@@ -57,6 +58,7 @@ func run(root string) error {
 	eudiCat, _ := catalog.LoadFrameworkCatalog(cfg.CatalogDir, "eudi-secreq")
 	isoCat, _ := catalog.LoadFrameworkCatalog(cfg.CatalogDir, "iso27001-annexa")
 	gdprCat, _ := catalog.LoadFrameworkCatalog(cfg.CatalogDir, "gdpr-checklist")
+	asvsCat, _ := catalog.LoadFrameworkCatalog(cfg.CatalogDir, "owasp-asvs")
 
 	// Active findings (have tracking issue, not resolved)
 	var activeFindings []*audit.Finding
@@ -75,6 +77,7 @@ func run(root string) error {
 	eudiReqURL = make(map[string]string)
 	isoCtrlURL = make(map[string]string)
 	gdprItemURL = make(map[string]string)
+	asvsSectionURL = make(map[string]string)
 
 	for _, group := range cat.Groups {
 		kind := groupKind(group.ID)
@@ -99,6 +102,12 @@ func run(root string) error {
 			gdprItemURL[slug] = "/frameworks/gdpr/" + slug
 		}
 	}
+	if maps.ASVS != nil {
+		for _, m := range maps.ASVS.Mappings {
+			slug := asvsSlug(m.Section)
+			asvsSectionURL[m.Section] = "/frameworks/owasp-asvs/" + slug
+		}
+	}
 
 	// Build framework→control reverse index
 	frameworkRefs := buildFrameworkRefs(maps)
@@ -113,7 +122,7 @@ func run(root string) error {
 		return err
 	}
 	// Frameworks
-	if err := generateFrameworks(cfg, cat, maps, audits, activeFindings, eudiCat, isoCat, gdprCat); err != nil {
+	if err := generateFrameworks(cfg, cat, maps, audits, activeFindings, eudiCat, isoCat, gdprCat, asvsCat); err != nil {
 		return err
 	}
 	// Findings
@@ -246,7 +255,7 @@ func renderControlPage(ctrl catalog.Control, groupTitle, kind string, audits *au
 
 	// Framework cross-references
 	refs := fwRefs[cid]
-	if len(refs.EUDI) > 0 || len(refs.ISO) > 0 || len(refs.GDPR) > 0 {
+	if len(refs.EUDI) > 0 || len(refs.ISO) > 0 || len(refs.GDPR) > 0 || len(refs.ASVS) > 0 {
 		b.WriteString("\n## Framework Requirements\n\n")
 		if len(refs.EUDI) > 0 {
 			links := make([]string, len(refs.EUDI))
@@ -269,6 +278,13 @@ func renderControlPage(ctrl catalog.Control, groupTitle, kind string, audits *au
 			}
 			fmt.Fprintf(&b, "**GDPR Checklist:** %s\n\n", strings.Join(links, ", "))
 		}
+		if len(refs.ASVS) > 0 {
+			links := make([]string, len(refs.ASVS))
+			for i, r := range refs.ASVS {
+				links[i] = asvsSectionLink(r)
+			}
+			fmt.Fprintf(&b, "**OWASP ASVS L3:** %s\n\n", strings.Join(links, ", "))
+		}
 	}
 
 	return b.String()
@@ -278,7 +294,7 @@ func renderControlPage(ctrl catalog.Control, groupTitle, kind string, audits *au
 // Framework pages (summary + per-requirement)
 // ---------------------------------------------------------------------------
 
-func generateFrameworks(cfg *config.Config, cat *catalog.Catalog, maps *mapping.Mappings, audits *audit.AuditSet, activeFindings []*audit.Finding, eudiCat, isoCat, gdprCat *catalog.FrameworkCatalog) error {
+func generateFrameworks(cfg *config.Config, cat *catalog.Catalog, maps *mapping.Mappings, audits *audit.AuditSet, activeFindings []*audit.Finding, eudiCat, isoCat, gdprCat, asvsCat *catalog.FrameworkCatalog) error {
 	fwDir := filepath.Join(cfg.SiteDir, "frameworks")
 	writePage(filepath.Join(fwDir, "index.md"), renderFrameworkIndex())
 	writePage(filepath.Join(fwDir, "_category_.json"), categoryJSON("Frameworks", 2))
@@ -295,6 +311,11 @@ func generateFrameworks(cfg *config.Config, cat *catalog.Catalog, maps *mapping.
 	}
 	if maps.GDPR != nil {
 		if err := generateGDPR(cfg, maps.GDPR, cat, audits, activeFindings, gdprCat); err != nil {
+			return err
+		}
+	}
+	if maps.ASVS != nil {
+		if err := generateASVS(cfg, maps.ASVS, cat, audits, activeFindings, asvsCat); err != nil {
 			return err
 		}
 	}
@@ -319,6 +340,7 @@ controls satisfy each requirement.
 | [EUDI Wallet Security Requirements v0.5](eudi/) | 85 | See details |
 | [ISO/IEC 27001:2022 Annex A](iso27001/) | 93 | See details |
 | [GDPR Checklist for Data Controllers](gdpr/) | 19 | See details |
+| [OWASP ASVS 4.0.3 Level 3](owasp-asvs/) | 68 | See details |
 
 ## OSCAL Interoperability
 
@@ -650,6 +672,11 @@ func findingMatchesReq(f *audit.Finding, reqID, statusField string) bool {
 				return true
 			}
 		}
+		for _, s := range f.ASVSSections {
+			if s == reqID {
+				return true
+			}
+		}
 	}
 	return false
 }
@@ -928,6 +955,7 @@ type fwRefs struct {
 	EUDI []string
 	ISO  []string
 	GDPR []string
+	ASVS []string
 }
 
 func buildFrameworkRefs(maps *mapping.Mappings) map[string]fwRefs {
@@ -959,6 +987,15 @@ func buildFrameworkRefs(maps *mapping.Mappings) map[string]fwRefs {
 			}
 		}
 	}
+	if maps.ASVS != nil {
+		for _, m := range maps.ASVS.Mappings {
+			for _, cid := range m.Controls {
+				r := refs[cid]
+				r.ASVS = append(r.ASVS, m.Section)
+				refs[cid] = r
+			}
+		}
+	}
 	return refs
 }
 
@@ -986,6 +1023,91 @@ func resolveENISARefs(text string) string {
 	arfRe := regexp.MustCompile(`\[ARF ([^\]]+)\]`)
 	text = arfRe.ReplaceAllString(text, "[ARF $1](https://eudi.dev/2.8.0/architecture-and-reference-framework-main/)")
 	return text
+}
+
+
+// --- OWASP ASVS ---
+
+func generateASVS(cfg *config.Config, asvs *mapping.ASVSFile, cat *catalog.Catalog, audits *audit.AuditSet, activeFindings []*audit.Finding, fwCat *catalog.FrameworkCatalog) error {
+	dir := filepath.Join(cfg.SiteDir, "frameworks", "owasp-asvs")
+	writePage(filepath.Join(dir, "_category_.json"),
+		`{"label":"OWASP ASVS L3","position":5,"link":{"type":"doc","id":"frameworks/owasp-asvs/index"}}`+"\n")
+	writePage(filepath.Join(dir, "index.md"), renderASVSSummary(asvs, fwCat))
+
+	for _, m := range asvs.Mappings {
+		slug := asvsSlug(m.Section)
+		var catEntry *catalog.FrameworkRequirement
+		if fwCat != nil {
+			catEntry = fwCat.ByID[m.Section]
+		}
+		page := renderRequirementPage(m.Section, catEntry, requirementAssessment{
+			statusField: "coverage", statusValue: m.Coverage, owner: m.Owner,
+			notes: m.Notes, controls: m.Controls,
+		}, asvsReqConfig(), cat, activeFindings)
+		writePage(filepath.Join(dir, slug+".md"), page)
+	}
+	fmt.Printf("  %d OWASP ASVS section pages\n", len(asvs.Mappings))
+	return nil
+}
+
+func renderASVSSummary(asvs *mapping.ASVSFile, fwCat *catalog.FrameworkCatalog) string {
+	full, partial, none, notAssessed := 0, 0, 0, 0
+	for _, m := range asvs.Mappings {
+		switch m.Coverage {
+		case "full":
+			full++
+		case "partial":
+			partial++
+		case "none":
+			none++
+		case "not_assessed":
+			notAssessed++
+		}
+	}
+	var b strings.Builder
+	b.WriteString("---\nsidebar_label: OWASP ASVS L3\ntitle: \"OWASP ASVS 4.0.3 \xe2\x80\x93 Level 3\"\n---\n\n# OWASP ASVS 4.0.3 \xe2\x80\x93 Level 3\n\n")
+
+	fmt.Fprintf(&b, `<div class="dashboard-grid">
+<div class="dashboard-card"><div class="number">%d</div><div class="label">Sections Assessed</div></div>
+<div class="dashboard-card"><div class="number">%d</div><div class="label">Full Coverage</div></div>
+<div class="dashboard-card"><div class="number">%d</div><div class="label">Partial Coverage</div></div>
+<div class="dashboard-card"><div class="number">%d</div><div class="label">No Coverage</div></div>
+<div class="dashboard-card"><div class="number">%d</div><div class="label">Not Assessed / N\u002FA</div></div>
+</div>`+"\n\n",
+		len(asvs.Mappings), full, partial, none, notAssessed)
+
+	b.WriteString(":::info\nAssessment covers 278 individual L3 requirements grouped into 68 sections. ")
+	b.WriteString("Sections marked \u201cnot assessed\u201d are not applicable to the passwordless FIDO-only wallet architecture.\n:::\n\n")
+	b.WriteString("## Section Coverage\n\n| Section | Title | Coverage | Controls | Owner |\n|---------|-------|----------|----------|-------|\n")
+	for _, m := range asvs.Mappings {
+		title := ""
+		if fwCat != nil {
+			if ce := fwCat.ByID[m.Section]; ce != nil {
+				title = ce.Title
+			}
+		}
+		link := asvsSectionLink(m.Section)
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s |\n", link, title, coverageSpan(m.Coverage), controlLinks(m.Controls), ownerBadge(m.Owner))
+	}
+	return b.String()
+}
+
+func asvsReqConfig() reqConfig {
+	return reqConfig{
+		source:    "OWASP Application Security Verification Standard 4.0.3",
+		statusMap: coverageStatusMap(),
+	}
+}
+
+func asvsSlug(section string) string {
+	return strings.ToLower(strings.ReplaceAll(section, ".", "_"))
+}
+
+func asvsSectionLink(section string) string {
+	if url, ok := asvsSectionURL[section]; ok {
+		return "[" + section + "](" + url + ")"
+	}
+	return "`" + section + "`"
 }
 
 func truncate(s string, n int) string {

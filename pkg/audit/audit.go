@@ -41,6 +41,7 @@ type Finding struct {
 	EUDIReqs      []string   `yaml:"eudi_reqs,omitempty"`
 	AnnexA        []string   `yaml:"annex_a,omitempty"`
 	GDPRItems     []string   `yaml:"gdpr_items,omitempty"`
+	ASVSSections  []string   `yaml:"asvs_sections,omitempty"`
 	TrackingIssue *IssueRef  `yaml:"tracking_issue,omitempty"`
 	Issues        []IssueRef `yaml:"issues,omitempty"`
 	PullRequests  []IssueRef `yaml:"pull_requests,omitempty"`

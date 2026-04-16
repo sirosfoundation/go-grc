@@ -16,8 +16,8 @@ import (
 // EUDIRequirement maps one EUDI SecReq requirement to controls.
 type EUDIRequirement struct {
 	ID          string   `yaml:"id"`
-	Result      string   `yaml:"result"`      // compliant | partially_compliant | non_compliant | not_applicable | not_assessed
-	Status      string   `yaml:"status"`       // done | in_progress | to_do
+	Result      string   `yaml:"result"` // compliant | partially_compliant | non_compliant | not_applicable | not_assessed
+	Status      string   `yaml:"status"` // done | in_progress | to_do
 	Controls    []string `yaml:"controls"`
 	Observation string   `yaml:"observation,omitempty"`
 	Owner       string   `yaml:"owner"` // platform | operator | shared
@@ -56,11 +56,26 @@ type GDPRFile struct {
 	Mappings []GDPRMapping `yaml:"mappings"`
 }
 
+// ASVSMapping entry maps one OWASP ASVS section.
+type ASVSMapping struct {
+	Section  string   `yaml:"section"`
+	Controls []string `yaml:"controls"`
+	Coverage string   `yaml:"coverage"` // full | partial | none | not_assessed
+	Owner    string   `yaml:"owner"`
+	Notes    string   `yaml:"notes,omitempty"`
+}
+
+// ASVSFile is the top-level OWASP ASVS mapping file.
+type ASVSFile struct {
+	Mappings []ASVSMapping `yaml:"mappings"`
+}
+
 // Mappings holds all loaded framework mappings.
 type Mappings struct {
 	EUDI *EUDIMapping
 	ISO  *ISOFile
 	GDPR *GDPRFile
+	ASVS *ASVSFile
 }
 
 // Load reads all mapping YAML files from the given directory.
@@ -94,6 +109,15 @@ func Load(mappingsDir string) (*Mappings, error) {
 		m.GDPR = &gm
 	}
 
+	// OWASP ASVS
+	if data, err := readYAML(filepath.Join(mappingsDir, "owasp-asvs.yaml")); err == nil {
+		var am ASVSFile
+		if err := yaml.Unmarshal(data, &am); err != nil {
+			return nil, fmt.Errorf("parsing owasp-asvs.yaml: %w", err)
+		}
+		m.ASVS = &am
+	}
+
 	return m, nil
 }
 
@@ -111,6 +135,11 @@ func (m *Mappings) Save(mappingsDir string) error {
 	}
 	if m.GDPR != nil {
 		if err := writeYAML(filepath.Join(mappingsDir, "gdpr.yaml"), m.GDPR); err != nil {
+			return err
+		}
+	}
+	if m.ASVS != nil {
+		if err := writeYAML(filepath.Join(mappingsDir, "owasp-asvs.yaml"), m.ASVS); err != nil {
 			return err
 		}
 	}

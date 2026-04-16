@@ -49,6 +49,7 @@ func run(root string, dryRun bool) error {
 	eu := deriveEUDIResults(maps, cat)
 	iu := deriveISOCoverage(maps, cat)
 	gu := deriveGDPRCoverage(maps, cat)
+	au := deriveASVSCoverage(maps, cat)
 
 	for _, u := range cu {
 		fmt.Printf("  control %s: %s -> %s\n", u.id, u.oldVal, u.newVal)
@@ -62,8 +63,11 @@ func run(root string, dryRun bool) error {
 	for _, u := range gu {
 		fmt.Printf("  gdpr    %s: %s -> %s\n", u.id, u.oldVal, u.newVal)
 	}
+	for _, u := range au {
+		fmt.Printf("  asvs    %s: %s -> %s\n", u.id, u.oldVal, u.newVal)
+	}
 
-	total := len(cu) + len(eu) + len(iu) + len(gu)
+	total := len(cu) + len(eu) + len(iu) + len(gu) + len(au)
 	if dryRun {
 		fmt.Printf("\nDry run: %d changes would be made.\n", total)
 		return nil
@@ -240,4 +244,23 @@ func deriveCoverage(controlIDs []string, cat *catalog.Catalog) string {
 	default:
 		return "none"
 	}
+}
+
+func deriveASVSCoverage(maps *mapping.Mappings, cat *catalog.Catalog) []update {
+	if maps.ASVS == nil {
+		return nil
+	}
+	var updates []update
+	for i := range maps.ASVS.Mappings {
+		m := &maps.ASVS.Mappings[i]
+		if m.Owner == "operator" {
+			continue
+		}
+		cov := deriveCoverage(m.Controls, cat)
+		if cov != m.Coverage {
+			updates = append(updates, update{m.Section, m.Coverage, cov})
+			m.Coverage = cov
+		}
+	}
+	return updates
 }
