@@ -25,7 +25,7 @@ func NewCommand() *cobra.Command {
 func run(root string) error {
 	cfg := config.New(root)
 
-	cat, err := catalog.Load(cfg.CatalogDir)
+	cat, err := catalog.Load(cfg.CatalogDir, cfg.CatalogSubdirs...)
 	if err != nil {
 		return fmt.Errorf("loading catalog: %w", err)
 	}

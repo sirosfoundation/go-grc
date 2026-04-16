@@ -1,7 +1,7 @@
 // Package mapping provides types and loading for framework-to-control mappings.
 //
 // Three framework mappings exist: EUDI SecReq, ISO 27001 Annex A, and GDPR.
-// Each maps external requirement IDs to internal SirosID controls and tracks
+// Each maps external requirement IDs to internal controls and tracks
 // assessment results that can be derived from control and finding status.
 package mapping
 

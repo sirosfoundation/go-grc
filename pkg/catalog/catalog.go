@@ -1,4 +1,4 @@
-// Package catalog provides types and loading for the SirosID control catalog.
+// Package catalog provides types and loading for the control catalog.
 //
 // The catalog is the authoritative set of controls the platform implements.
 // Controls are organized into groups (technical, organizational) defined in
@@ -14,7 +14,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Control represents a single SirosID control.
+// Control represents a single security control.
 type Control struct {
 	ID                     string   `yaml:"id"`
 	Title                  string   `yaml:"title"`
@@ -62,12 +62,15 @@ type Metadata struct {
 }
 
 // Load reads all catalog YAML files from the given directory.
-func Load(catalogDir string) (*Catalog, error) {
+func Load(catalogDir string, subdirs ...string) (*Catalog, error) {
 	cat := &Catalog{
 		Controls: make(map[string]*Control),
 	}
 
-	for _, subdir := range []string{"technical", "organizational"} {
+	if len(subdirs) == 0 {
+		subdirs = []string{"technical", "organizational"}
+	}
+	for _, subdir := range subdirs {
 		dir := filepath.Join(catalogDir, subdir)
 		entries, err := os.ReadDir(dir)
 		if err != nil {

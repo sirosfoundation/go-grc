@@ -69,7 +69,7 @@ func NewCommand() *cobra.Command {
 func run(root, outputDir string) error {
 	cfg := config.New(root)
 
-	cat, err := catalog.Load(cfg.CatalogDir)
+	cat, err := catalog.Load(cfg.CatalogDir, cfg.CatalogSubdirs...)
 	if err != nil {
 		return fmt.Errorf("loading catalog: %w", err)
 	}
@@ -143,7 +143,7 @@ func resolveURL(ev audit.Evidence) string {
 	case "merged_pr":
 		return "https://github.com/" + refToPath(ev.Ref, "pull")
 	case "policy", "architecture_doc":
-		return "https://github.com/sirosfoundation/security/blob/main/" + ev.Ref
+		return ev.Ref
 	default:
 		return ev.Ref
 	}

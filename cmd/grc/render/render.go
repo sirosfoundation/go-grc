@@ -31,17 +31,64 @@ func NewCommand() *cobra.Command {
 
 // --- URL maps (populated during run, used for cross-linking) ---
 var (
-	controlURL  map[string]string
-	eudiReqURL  map[string]string
-	isoCtrlURL  map[string]string
+	projectOrg     string
+	controlURL     map[string]string
+	eudiReqURL     map[string]string
+	isoCtrlURL     map[string]string
 	gdprItemURL    map[string]string
 	asvsSectionURL map[string]string
 )
 
+// effectiveStatus returns DerivedStatus if set, otherwise Status.
+func effectiveStatus(ctrl *catalog.Control) string {
+	if ctrl.DerivedStatus != "" {
+		return ctrl.DerivedStatus
+	}
+	return ctrl.Status
+}
+
+// deriveControlStatuses populates DerivedStatus on controls based on findings.
+func deriveControlStatuses(cat *catalog.Catalog, audits *audit.AuditSet) {
+	for id, ctrl := range cat.Controls {
+		findings := audits.FindingsByControl[id]
+		if len(findings) == 0 {
+			continue
+		}
+		allResolved, allEvidence, anyInProgress := true, true, false
+		for _, fref := range findings {
+			f := fref.Finding
+			if f.Status != "resolved" {
+				allResolved = false
+			}
+			if !f.HasEvidence() {
+				allEvidence = false
+			}
+			if f.Status == "in_progress" {
+				anyInProgress = true
+			}
+		}
+		var derived string
+		switch {
+		case allResolved && allEvidence:
+			derived = "validated"
+		case allResolved:
+			derived = "verified"
+		case anyInProgress:
+			derived = "planned"
+		default:
+			derived = "to_do"
+		}
+		if derived != ctrl.Status {
+			ctrl.DerivedStatus = derived
+			cat.Controls[id] = ctrl
+		}
+	}
+}
+
 func run(root string) error {
 	cfg := config.New(root)
 
-	cat, err := catalog.Load(cfg.CatalogDir)
+	cat, err := catalog.Load(cfg.CatalogDir, cfg.CatalogSubdirs...)
 	if err != nil {
 		return fmt.Errorf("loading catalog: %w", err)
 	}
@@ -52,6 +99,14 @@ func run(root string) error {
 	maps, err := mapping.Load(cfg.MappingsDir)
 	if err != nil {
 		return fmt.Errorf("loading mappings: %w", err)
+	}
+
+	// Derive effective control statuses from findings before rendering.
+	deriveControlStatuses(cat, audits)
+
+	// Extract org from project repo for GitHub links.
+	if parts := strings.SplitN(cfg.Project.Repo, "/", 2); len(parts) >= 1 {
+		projectOrg = parts[0]
 	}
 
 	// Load framework catalogs (normative requirement text)
@@ -164,7 +219,7 @@ func renderControlIndex(cat *catalog.Catalog) string {
 	total := len(cat.Controls)
 	verified, toDo, platform, operator := 0, 0, 0, 0
 	for _, ctrl := range cat.Controls {
-		if ctrl.Status == "verified" {
+		if effectiveStatus(ctrl) == "verified" || effectiveStatus(ctrl) == "validated" {
 			verified++
 		} else {
 			toDo++
@@ -194,7 +249,7 @@ func renderControlIndex(cat *catalog.Catalog) string {
 				slug := idSlug(ctrl.ID)
 				fmt.Fprintf(&b, "| [%s](%s/%s) | %s | %s | %s | %s |\n",
 					ctrl.ID, kind, slug, ctrl.Title,
-					statusBadge(ctrl.Status), ownerBadge(ctrl.Owner), csfBadge(ctrl.CSFFunction))
+					statusBadge(effectiveStatus(&ctrl)), ownerBadge(ctrl.Owner), csfBadge(ctrl.CSFFunction))
 			}
 		}
 		b.WriteString("\n")
@@ -204,10 +259,7 @@ func renderControlIndex(cat *catalog.Catalog) string {
 
 func renderControlPage(ctrl catalog.Control, groupTitle, kind string, audits *audit.AuditSet, activeFindings []*audit.Finding, fwRefs map[string]fwRefs) string {
 	cid := ctrl.ID
-	effective := ctrl.Status
-	if ctrl.DerivedStatus != "" {
-		effective = ctrl.DerivedStatus
-	}
+	effective := effectiveStatus(&ctrl)
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "---\nsidebar_label: \"%s\"\ntitle: \"%s — %s\"\n---\n\n", cid, cid, ctrl.Title)
@@ -236,7 +288,7 @@ func renderControlPage(ctrl catalog.Control, groupTitle, kind string, audits *au
 		for _, r := range ctrl.References {
 			parts := strings.SplitN(r, "/", 2)
 			if len(parts) >= 2 {
-				fmt.Fprintf(&b, "- [`%s`](https://github.com/sirosfoundation/%s)\n", r, parts[0])
+				fmt.Fprintf(&b, "- [`%s`](https://github.com/%s/%s)\n", r, projectOrg, parts[0])
 			} else {
 				fmt.Fprintf(&b, "- `%s`\n", r)
 			}
@@ -331,7 +383,7 @@ title: Framework Coverage
 
 # Framework Coverage
 
-SirosID controls are mapped to the following compliance frameworks.
+Controls are mapped to the following compliance frameworks.
 Each framework page shows per-requirement coverage status and which
 controls satisfy each requirement.
 
@@ -344,8 +396,8 @@ controls satisfy each requirement.
 
 ## OSCAL Interoperability
 
-The SirosID component definition is available as an OSCAL JSON artifact
-at [` + "`" + `oscal/component-definition.json` + "`" + `](https://github.com/sirosfoundation/compliance/blob/main/oscal/component-definition.json).
+The component definition is available as an OSCAL JSON artifact
+at ` + "`" + `oscal/component-definition.json` + "`" + ` in the compliance repository.
 Organizations can import this into their own GRC tools (trestle, CISO
 Assistant, RegScale, etc.) to bootstrap their own assessments.
 `
@@ -631,7 +683,7 @@ func renderRequirementPage(reqID string, catEntry *catalog.FrameworkRequirement,
 			ctrlStatus := ""
 			if ok {
 				ctrlTitle = ctrl.Title
-				ctrlStatus = statusBadge(ctrl.Status)
+				ctrlStatus = statusBadge(effectiveStatus(ctrl))
 			}
 			fmt.Fprintf(&b, "| %s | %s | %s |\n", link, ctrlTitle, ctrlStatus)
 		}
@@ -716,13 +768,13 @@ func generateLanding(cfg *config.Config, cat *catalog.Catalog, activeFindings []
 	total := len(cat.Controls)
 	verified := 0
 	for _, ctrl := range cat.Controls {
-		if ctrl.Status == "verified" {
+		if effectiveStatus(ctrl) == "verified" || effectiveStatus(ctrl) == "validated" {
 			verified++
 		}
 	}
 	var b strings.Builder
-	b.WriteString("---\nsidebar_position: 1\nslug: /\ntitle: SirosID Compliance Dashboard\n---\n\n# SirosID Compliance Dashboard\n\n")
-	b.WriteString("Security controls, framework coverage, and compliance status for the SirosID digital identity wallet platform.\n\n")
+	fmt.Fprintf(&b, "---\nsidebar_position: 1\nslug: /\ntitle: %s\n---\n\n# %s\n\n", cfg.Project.Name, cfg.Project.Name)
+	b.WriteString("Security controls, framework coverage, and compliance status.\n\n")
 	fmt.Fprintf(&b, `<div class="dashboard-grid">
 <a href="controls" class="dashboard-card"><div class="number">%d</div><div class="label">Total Controls</div></a>
 <a href="controls" class="dashboard-card"><div class="number">%d</div><div class="label">Verified</div></a>
@@ -741,9 +793,9 @@ func generateLanding(cfg *config.Config, cat *catalog.Catalog, activeFindings []
 
 ## For Deployment Operators
 
-If you are deploying SirosID for your organization, start with the
+If you are deploying this platform, start with the
 [Deployment Checklist](checklist) for all organizational requirements, and download the
-[OSCAL Component Definition](https://github.com/sirosfoundation/compliance/blob/main/oscal/component-definition.json)
+the OSCAL component definition
 to bootstrap your own compliance assessment.
 
 See [How It Works](workflows) for architecture and workflow details.
@@ -1024,7 +1076,6 @@ func resolveENISARefs(text string) string {
 	text = arfRe.ReplaceAllString(text, "[ARF $1](https://eudi.dev/2.8.0/architecture-and-reference-framework-main/)")
 	return text
 }
-
 
 // --- OWASP ASVS ---
 

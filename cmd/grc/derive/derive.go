@@ -32,7 +32,7 @@ type update struct {
 func run(root string, dryRun bool) error {
 	cfg := config.New(root)
 
-	cat, err := catalog.Load(cfg.CatalogDir)
+	cat, err := catalog.Load(cfg.CatalogDir, cfg.CatalogSubdirs...)
 	if err != nil {
 		return fmt.Errorf("loading catalog: %w", err)
 	}
