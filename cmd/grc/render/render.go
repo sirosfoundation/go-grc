@@ -819,10 +819,10 @@ func kindPosition(kind string) int {
 
 func statusBadge(s string) string {
 	m := map[string]string{
-		"verified":  `<a href="/tags/verified" class="badge--verified">verified</a>`,
-		"to_do":     `<a href="/tags/to_do" class="badge--to-do">to_do</a>`,
-		"planned":   `<a href="/tags/to_do" class="badge--to-do">planned</a>`,
-		"validated": `<a href="/tags/verified" class="badge--verified">validated</a>`,
+		"verified":  `<span class="badge--verified">verified</span>`,
+		"to_do":     `<span class="badge--to-do">to_do</span>`,
+		"planned":   `<span class="badge--to-do">planned</span>`,
+		"validated": `<span class="badge--verified">validated</span>`,
 	}
 	if v, ok := m[s]; ok {
 		return v
@@ -832,8 +832,8 @@ func statusBadge(s string) string {
 
 func ownerBadge(s string) string {
 	m := map[string]string{
-		"platform": `<a href="/tags/platform" class="badge--platform">platform</a>`,
-		"operator": `<a href="/tags/operator" class="badge--operator">operator</a>`,
+		"platform": `<span class="badge--platform">platform</span>`,
+		"operator": `<span class="badge--operator">operator</span>`,
 	}
 	if v, ok := m[s]; ok {
 		return v
@@ -843,12 +843,12 @@ func ownerBadge(s string) string {
 
 func csfBadge(s string) string {
 	m := map[string]string{
-		"identify": `<a href="/tags/identify" class="badge--csf">identify</a>`,
-		"protect":  `<a href="/tags/protect" class="badge--csf">protect</a>`,
-		"detect":   `<a href="/tags/detect" class="badge--csf">detect</a>`,
-		"respond":  `<a href="/tags/respond" class="badge--csf">respond</a>`,
-		"recover":  `<a href="/tags/recover" class="badge--csf">recover</a>`,
-		"govern":   `<a href="/tags/govern" class="badge--csf">govern</a>`,
+		"identify": `<span class="badge--csf">identify</span>`,
+		"protect":  `<span class="badge--csf">protect</span>`,
+		"detect":   `<span class="badge--csf">detect</span>`,
+		"respond":  `<span class="badge--csf">respond</span>`,
+		"recover":  `<span class="badge--csf">recover</span>`,
+		"govern":   `<span class="badge--csf">govern</span>`,
 	}
 	if v, ok := m[s]; ok {
 		return v
