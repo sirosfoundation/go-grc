@@ -19,10 +19,10 @@ type Control struct {
 	ID                     string   `yaml:"id"`
 	Title                  string   `yaml:"title"`
 	Description            string   `yaml:"description"`
-	Category               string   `yaml:"category"`                // technical | policy | process | physical
-	CSFFunction            string   `yaml:"csf_function"`            // identify | protect | detect | respond | recover | govern
-	Status                 string   `yaml:"status"`                  // verified | to_do | planned | validated
-	Owner                  string   `yaml:"owner"`                   // platform | operator | shared
+	Category               string   `yaml:"category"`     // technical | policy | process | physical
+	CSFFunction            string   `yaml:"csf_function"` // identify | protect | detect | respond | recover | govern
+	Status                 string   `yaml:"status"`       // verified | to_do | planned | validated
+	Owner                  string   `yaml:"owner"`        // platform | operator | shared
 	Components             []string `yaml:"components,omitempty"`
 	References             []string `yaml:"references,omitempty"`
 	OperatorResponsibility string   `yaml:"operator_responsibility,omitempty"`
