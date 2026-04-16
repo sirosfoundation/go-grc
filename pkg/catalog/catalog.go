@@ -36,12 +36,14 @@ type Control struct {
 type Group struct {
 	ID       string    `yaml:"id"`
 	Title    string    `yaml:"title"`
-	Controls []Control `yaml:"controls"`
+	Controls []Control `yaml:"-"`
 }
 
 // GroupFile is the top-level structure of a catalog YAML file.
+// In the real YAML, `group:` and `controls:` are siblings at the top level.
 type GroupFile struct {
-	Group Group `yaml:"group"`
+	Group    Group     `yaml:"group"`
+	Controls []Control `yaml:"controls"`
 }
 
 // Catalog holds all loaded control groups indexed by group and control ID.
@@ -90,8 +92,10 @@ func Load(catalogDir string) (*Catalog, error) {
 				return nil, fmt.Errorf("parsing %s: %w", entry.Name(), err)
 			}
 
-			cat.Groups = append(cat.Groups, gf.Group)
-			for i := range gf.Group.Controls {
+			g := gf.Group
+			g.Controls = gf.Controls
+			cat.Groups = append(cat.Groups, g)
+			for i := range cat.Groups[len(cat.Groups)-1].Controls {
 				ctrl := &cat.Groups[len(cat.Groups)-1].Controls[i]
 				if _, dup := cat.Controls[ctrl.ID]; dup {
 					return nil, fmt.Errorf("duplicate control ID: %s in %s", ctrl.ID, entry.Name())

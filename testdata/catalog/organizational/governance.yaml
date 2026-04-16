@@ -1,7 +1,8 @@
 group:
   id: "governance"
   title: "Governance Controls"
-  controls:
+
+controls:
   - id: "GOV-POL-01"
     title: "Security policy"
     status: "verified"

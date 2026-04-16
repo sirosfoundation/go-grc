@@ -1,7 +1,8 @@
 group:
   id: "web-security"
   title: "Web Security Controls"
-  controls:
+
+controls:
   - id: "SEC-WEB-01"
     title: "HTTP security headers"
     status: "to_do"

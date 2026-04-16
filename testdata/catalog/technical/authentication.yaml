@@ -1,7 +1,8 @@
 group:
   id: "authentication"
   title: "Authentication Controls"
-  controls:
+
+controls:
   - id: "SEC-AUTH-01"
     title: "Authentication mechanism"
     status: "verified"
