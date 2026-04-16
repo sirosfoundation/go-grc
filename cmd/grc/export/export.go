@@ -78,7 +78,7 @@ func run(root, outputDir string) error {
 		return fmt.Errorf("loading audits: %w", err)
 	}
 	// mappings loaded for completeness but not yet exported in v1
-	if _, err := mapping.Load(cfg.MappingsDir); err != nil {
+	if _, err := mapping.Load(cfg.MappingsDir, cfg.Frameworks); err != nil {
 		return fmt.Errorf("loading mappings: %w", err)
 	}
 

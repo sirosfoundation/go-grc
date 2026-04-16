@@ -1,163 +1,155 @@
-// Package mapping provides types and loading for framework-to-control mappings.
+// Package mapping provides generic types and I/O for framework-to-control mappings.
 //
-// Three framework mappings exist: EUDI SecReq, ISO 27001 Annex A, and GDPR.
-// Each maps external requirement IDs to internal controls and tracks
-// assessment results that can be derived from control and finding status.
+// Each framework mapping is a list of entries where each entry maps an external
+// requirement ID to internal controls and tracks an assessment status.
+// The YAML field names are configurable via FrameworkConfig.
 package mapping
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
+"fmt"
+"os"
+"path/filepath"
 
-	"gopkg.in/yaml.v3"
+"github.com/sirosfoundation/go-grc/pkg/config"
+
+"gopkg.in/yaml.v3"
 )
 
-// EUDIRequirement maps one EUDI SecReq requirement to controls.
-type EUDIRequirement struct {
-	ID          string   `yaml:"id"`
-	Result      string   `yaml:"result"` // compliant | partially_compliant | non_compliant | not_applicable | not_assessed
-	Status      string   `yaml:"status"` // done | in_progress | to_do
-	Controls    []string `yaml:"controls"`
-	Observation string   `yaml:"observation,omitempty"`
-	Owner       string   `yaml:"owner"` // platform | operator | shared
+// MappingEntry holds one generic mapping entry.
+type MappingEntry struct {
+Key        string   // value from key_field
+Status     string   // value from status_field (result or coverage)
+WorkStatus string   // value from work_status_field (optional, e.g. EUDI "status")
+Controls   []string // mapped control IDs
+Owner      string
+Notes      string // value from notes_field
 }
 
-// EUDIMapping is the top-level EUDI SecReq mapping file.
-type EUDIMapping struct {
-	Requirements []EUDIRequirement `yaml:"requirements"`
+// FrameworkMapping holds all mapping entries for one framework.
+type FrameworkMapping struct {
+Entries []MappingEntry
 }
 
-// ISOMapping entry maps one ISO 27001 Annex A control.
-type ISOMapping struct {
-	AnnexA   string   `yaml:"annex_a"`
-	Controls []string `yaml:"controls"`
-	Coverage string   `yaml:"coverage"` // full | partial | none | not_assessed
-	Owner    string   `yaml:"owner"`
-	Notes    string   `yaml:"notes,omitempty"`
+// Mappings maps framework ID → loaded mapping.
+type Mappings map[string]*FrameworkMapping
+
+// Load reads mapping YAML files for all configured frameworks.
+func Load(mappingsDir string, frameworks []config.FrameworkConfig) (Mappings, error) {
+m := make(Mappings)
+for _, fw := range frameworks {
+path := filepath.Join(mappingsDir, fw.MappingFile)
+data, err := os.ReadFile(path)
+if err != nil {
+if os.IsNotExist(err) {
+continue
+}
+return nil, fmt.Errorf("reading %s: %w", fw.MappingFile, err)
+}
+fm, err := parseFramework(data, fw)
+if err != nil {
+return nil, fmt.Errorf("parsing %s: %w", fw.MappingFile, err)
+}
+m[fw.ID] = fm
+}
+return m, nil
 }
 
-// ISOFile is the top-level ISO mapping file.
-type ISOFile struct {
-	Mappings []ISOMapping `yaml:"mappings"`
+// Save writes mapping files back to disk.
+func (m Mappings) Save(mappingsDir string, frameworks []config.FrameworkConfig) error {
+for _, fw := range frameworks {
+fm, ok := m[fw.ID]
+if !ok {
+continue
+}
+entries := make([]map[string]interface{}, len(fm.Entries))
+for i, e := range fm.Entries {
+raw := buildRaw(e, fw)
+entries[i] = raw
+}
+out := map[string]interface{}{fw.ListKey: entries}
+data, err := yaml.Marshal(out)
+if err != nil {
+return fmt.Errorf("marshaling %s: %w", fw.MappingFile, err)
+}
+path := filepath.Join(mappingsDir, fw.MappingFile)
+if err := os.WriteFile(path, data, 0644); err != nil {
+return err
+}
+}
+return nil
 }
 
-// GDPRMapping entry maps one GDPR checklist item.
-type GDPRMapping struct {
-	MatchName string   `yaml:"match_name"`
-	Controls  []string `yaml:"controls"`
-	Coverage  string   `yaml:"coverage"` // full | partial | none | not_assessed
-	Owner     string   `yaml:"owner"`
-	Notes     string   `yaml:"notes,omitempty"`
+func parseFramework(data []byte, fw config.FrameworkConfig) (*FrameworkMapping, error) {
+var raw map[string]interface{}
+if err := yaml.Unmarshal(data, &raw); err != nil {
+return nil, err
+}
+rawList, ok := raw[fw.ListKey]
+if !ok {
+return nil, fmt.Errorf("expected %q key in YAML", fw.ListKey)
+}
+rawSlice, ok := rawList.([]interface{})
+if !ok {
+return nil, fmt.Errorf("expected %q to be a list", fw.ListKey)
+}
+list := make([]map[string]interface{}, 0, len(rawSlice))
+for _, item := range rawSlice {
+if m, ok := item.(map[string]interface{}); ok {
+list = append(list, m)
+}
+}
+fm := &FrameworkMapping{
+Entries: make([]MappingEntry, len(list)),
+}
+for i, e := range list {
+fm.Entries[i] = extractEntry(e, fw)
+}
+return fm, nil
 }
 
-// GDPRFile is the top-level GDPR mapping file.
-type GDPRFile struct {
-	Mappings []GDPRMapping `yaml:"mappings"`
+func extractEntry(raw map[string]interface{}, fw config.FrameworkConfig) MappingEntry {
+entry := MappingEntry{
+Key:    getStr(raw, fw.KeyField),
+Status: getStr(raw, fw.StatusField),
+Owner:  getStr(raw, "owner"),
+Notes:  getStr(raw, fw.NotesField),
+}
+if fw.WorkStatusField != "" {
+entry.WorkStatus = getStr(raw, fw.WorkStatusField)
+}
+if v, ok := raw["controls"]; ok {
+if arr, ok := v.([]interface{}); ok {
+for _, item := range arr {
+if s, ok := item.(string); ok {
+entry.Controls = append(entry.Controls, s)
+}
+}
+}
+}
+return entry
 }
 
-// ASVSMapping entry maps one OWASP ASVS section.
-type ASVSMapping struct {
-	Section  string   `yaml:"section"`
-	Controls []string `yaml:"controls"`
-	Coverage string   `yaml:"coverage"` // full | partial | none | not_assessed
-	Owner    string   `yaml:"owner"`
-	Notes    string   `yaml:"notes,omitempty"`
+func buildRaw(e MappingEntry, fw config.FrameworkConfig) map[string]interface{} {
+raw := map[string]interface{}{
+fw.KeyField:    e.Key,
+fw.StatusField: e.Status,
+"controls":     e.Controls,
+"owner":        e.Owner,
+}
+if fw.WorkStatusField != "" && e.WorkStatus != "" {
+raw[fw.WorkStatusField] = e.WorkStatus
+}
+if e.Notes != "" {
+raw[fw.NotesField] = e.Notes
+}
+return raw
 }
 
-// ASVSFile is the top-level OWASP ASVS mapping file.
-type ASVSFile struct {
-	Mappings []ASVSMapping `yaml:"mappings"`
+func getStr(m map[string]interface{}, key string) string {
+if v, ok := m[key]; ok {
+if s, ok := v.(string); ok {
+return s
 }
-
-// Mappings holds all loaded framework mappings.
-type Mappings struct {
-	EUDI *EUDIMapping
-	ISO  *ISOFile
-	GDPR *GDPRFile
-	ASVS *ASVSFile
 }
-
-// Load reads all mapping YAML files from the given directory.
-func Load(mappingsDir string) (*Mappings, error) {
-	m := &Mappings{}
-
-	// EUDI SecReq
-	if data, err := readYAML(filepath.Join(mappingsDir, "eudi-secreq.yaml")); err == nil {
-		var em EUDIMapping
-		if err := yaml.Unmarshal(data, &em); err != nil {
-			return nil, fmt.Errorf("parsing eudi-secreq.yaml: %w", err)
-		}
-		m.EUDI = &em
-	}
-
-	// ISO 27001 Annex A
-	if data, err := readYAML(filepath.Join(mappingsDir, "iso27001-annexa.yaml")); err == nil {
-		var im ISOFile
-		if err := yaml.Unmarshal(data, &im); err != nil {
-			return nil, fmt.Errorf("parsing iso27001-annexa.yaml: %w", err)
-		}
-		m.ISO = &im
-	}
-
-	// GDPR
-	if data, err := readYAML(filepath.Join(mappingsDir, "gdpr.yaml")); err == nil {
-		var gm GDPRFile
-		if err := yaml.Unmarshal(data, &gm); err != nil {
-			return nil, fmt.Errorf("parsing gdpr.yaml: %w", err)
-		}
-		m.GDPR = &gm
-	}
-
-	// OWASP ASVS
-	if data, err := readYAML(filepath.Join(mappingsDir, "owasp-asvs.yaml")); err == nil {
-		var am ASVSFile
-		if err := yaml.Unmarshal(data, &am); err != nil {
-			return nil, fmt.Errorf("parsing owasp-asvs.yaml: %w", err)
-		}
-		m.ASVS = &am
-	}
-
-	return m, nil
-}
-
-// Save writes modified mapping files back to disk.
-func (m *Mappings) Save(mappingsDir string) error {
-	if m.EUDI != nil {
-		if err := writeYAML(filepath.Join(mappingsDir, "eudi-secreq.yaml"), m.EUDI); err != nil {
-			return err
-		}
-	}
-	if m.ISO != nil {
-		if err := writeYAML(filepath.Join(mappingsDir, "iso27001-annexa.yaml"), m.ISO); err != nil {
-			return err
-		}
-	}
-	if m.GDPR != nil {
-		if err := writeYAML(filepath.Join(mappingsDir, "gdpr.yaml"), m.GDPR); err != nil {
-			return err
-		}
-	}
-	if m.ASVS != nil {
-		if err := writeYAML(filepath.Join(mappingsDir, "owasp-asvs.yaml"), m.ASVS); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func readYAML(path string) ([]byte, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	return data, nil
-}
-
-func writeYAML(path string, v interface{}) error {
-	data, err := yaml.Marshal(v)
-	if err != nil {
-		return fmt.Errorf("marshaling %s: %w", filepath.Base(path), err)
-	}
-	return os.WriteFile(path, data, 0644)
+return ""
 }

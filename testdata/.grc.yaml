@@ -1,0 +1,35 @@
+# Test fixture .grc.yaml
+project:
+  name: "Test Dashboard"
+  repo: "test/compliance"
+  url: "https://test.example.com"
+
+frameworks:
+  - id: eudi
+    name: "EUDI Security Requirements"
+    catalog_file: eudi-secreq.yaml
+    mapping_file: eudi-secreq.yaml
+    sidebar_position: 1
+    list_key: requirements
+    key_field: id
+    status_field: result
+    work_status_field: status
+    notes_field: observation
+    derive_mode: result
+    source: "ENISA – Security Requirements for European Digital Identity Wallets v0.5"
+
+  - id: iso27001
+    name: "ISO 27001 Annex A"
+    catalog_file: iso27001-annexa.yaml
+    mapping_file: iso27001-annexa.yaml
+    sidebar_position: 2
+    key_field: annex_a
+    source: "ISO/IEC 27001:2022 Annex A"
+
+  - id: gdpr
+    name: "GDPR Checklist"
+    catalog_file: gdpr-checklist.yaml
+    mapping_file: gdpr.yaml
+    sidebar_position: 3
+    key_field: match_name
+    source: "GDPR Checklist for Data Controllers"

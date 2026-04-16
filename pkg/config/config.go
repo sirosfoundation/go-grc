@@ -21,6 +21,43 @@ type FrameworkConfig struct {
 	CatalogFile     string `yaml:"catalog_file"`
 	MappingFile     string `yaml:"mapping_file"`
 	SidebarPosition int    `yaml:"sidebar_position"`
+
+	// Mapping schema fields (generic loading/deriving).
+	ListKey         string `yaml:"list_key"`          // top-level YAML key (default: "mappings")
+	KeyField        string `yaml:"key_field"`         // field name for requirement ID
+	StatusField     string `yaml:"status_field"`      // assessment status field (default: "coverage")
+	WorkStatusField string `yaml:"work_status_field"` // optional secondary status field
+	NotesField      string `yaml:"notes_field"`       // field name for notes (default: "notes")
+	DeriveMode      string `yaml:"derive_mode"`       // "result" or "coverage" (default: "coverage")
+	Slug            string `yaml:"slug"`              // URL slug for framework dir (default: ID)
+	Source          string `yaml:"source"`            // source attribution for per-requirement pages
+}
+
+// ApplyDefaults fills in zero-value fields with sensible defaults.
+func (fw *FrameworkConfig) ApplyDefaults() {
+	if fw.ListKey == "" {
+		fw.ListKey = "mappings"
+	}
+	if fw.StatusField == "" {
+		fw.StatusField = "coverage"
+	}
+	if fw.NotesField == "" {
+		fw.NotesField = "notes"
+	}
+	if fw.DeriveMode == "" {
+		fw.DeriveMode = "coverage"
+	}
+	if fw.Slug == "" {
+		fw.Slug = fw.ID
+	}
+}
+
+// DefaultFrameworks is used when no .grc.yaml is present (backward compat).
+var DefaultFrameworks = []FrameworkConfig{
+	{ID: "eudi", Name: "EUDI Security Requirements", CatalogFile: "eudi-secreq.yaml", MappingFile: "eudi-secreq.yaml", SidebarPosition: 1, ListKey: "requirements", KeyField: "id", StatusField: "result", WorkStatusField: "status", NotesField: "observation", DeriveMode: "result", Slug: "eudi", Source: "ENISA – Security Requirements for European Digital Identity Wallets v0.5"},
+	{ID: "iso27001", Name: "ISO 27001 Annex A", CatalogFile: "iso27001-annexa.yaml", MappingFile: "iso27001-annexa.yaml", SidebarPosition: 2, KeyField: "annex_a", Source: "ISO/IEC 27001:2022 Annex A"},
+	{ID: "gdpr", Name: "GDPR Checklist", CatalogFile: "gdpr-checklist.yaml", MappingFile: "gdpr.yaml", SidebarPosition: 3, KeyField: "match_name", Source: "GDPR Checklist for Data Controllers"},
+	{ID: "owasp-asvs", Name: "OWASP ASVS 4.0.3 Level 3", CatalogFile: "owasp-asvs.yaml", MappingFile: "owasp-asvs.yaml", SidebarPosition: 4, KeyField: "section", Source: "OWASP Application Security Verification Standard 4.0.3"},
 }
 
 // ProjectConfig holds project-level identity settings.
@@ -88,12 +125,24 @@ func New(root string) *Config {
 
 	data, err := os.ReadFile(filepath.Join(root, ".grc.yaml"))
 	if err != nil {
-		return cfg // no config file — use defaults
+		// No config file — use defaults including default frameworks.
+		cfg.Frameworks = make([]FrameworkConfig, len(DefaultFrameworks))
+		copy(cfg.Frameworks, DefaultFrameworks)
+		for i := range cfg.Frameworks {
+			cfg.Frameworks[i].ApplyDefaults()
+		}
+		return cfg
 	}
 
 	var grc GRCFile
 	if err := yaml.Unmarshal(data, &grc); err != nil {
-		return cfg // malformed — use defaults
+		// Malformed — use defaults including default frameworks.
+		cfg.Frameworks = make([]FrameworkConfig, len(DefaultFrameworks))
+		copy(cfg.Frameworks, DefaultFrameworks)
+		for i := range cfg.Frameworks {
+			cfg.Frameworks[i].ApplyDefaults()
+		}
+		return cfg
 	}
 
 	// Project
@@ -133,6 +182,15 @@ func New(root string) *Config {
 	// Frameworks
 	if len(grc.Frameworks) > 0 {
 		cfg.Frameworks = grc.Frameworks
+	}
+
+	// Apply defaults to each framework config.
+	if len(cfg.Frameworks) == 0 {
+		cfg.Frameworks = make([]FrameworkConfig, len(DefaultFrameworks))
+		copy(cfg.Frameworks, DefaultFrameworks)
+	}
+	for i := range cfg.Frameworks {
+		cfg.Frameworks[i].ApplyDefaults()
 	}
 
 	return cfg
