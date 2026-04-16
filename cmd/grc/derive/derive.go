@@ -74,39 +74,18 @@ return nil
 }
 
 func deriveControlStatuses(cat *catalog.Catalog, audits *audit.AuditSet) []update {
+// Snapshot old statuses before derivation.
+oldStatus := make(map[string]string, len(cat.Controls))
+for id, ctrl := range cat.Controls {
+oldStatus[id] = ctrl.Status
+}
+
+catalog.DeriveControlStatuses(cat, audits)
+
 var updates []update
 for id, ctrl := range cat.Controls {
-findings := audits.FindingsByControl[id]
-if len(findings) == 0 {
-continue
-}
-allResolved, allEvidence, anyInProgress := true, true, false
-for _, fref := range findings {
-f := fref.Finding
-if f.Status != "resolved" {
-allResolved = false
-}
-if !f.HasEvidence() {
-allEvidence = false
-}
-if f.Status == "in_progress" {
-anyInProgress = true
-}
-}
-var derived string
-switch {
-case allResolved && allEvidence:
-derived = "validated"
-case allResolved:
-derived = "verified"
-case anyInProgress:
-derived = "planned"
-default:
-derived = "to_do"
-}
-if derived != ctrl.Status {
-updates = append(updates, update{id, ctrl.Status, derived})
-ctrl.DerivedStatus = derived
+if ctrl.DerivedStatus != "" && ctrl.DerivedStatus != oldStatus[id] {
+updates = append(updates, update{id, oldStatus[id], ctrl.DerivedStatus})
 }
 }
 return updates
@@ -156,10 +135,7 @@ ctrl, ok := cat.Controls[cid]
 if !ok {
 return "not_assessed", "to_do"
 }
-effective := ctrl.Status
-if ctrl.DerivedStatus != "" {
-effective = ctrl.DerivedStatus
-}
+effective := catalog.EffectiveStatus(ctrl)
 switch effective {
 case "validated":
 anyVerified = true
@@ -184,27 +160,24 @@ func deriveCoverage(controlIDs []string, cat *catalog.Catalog) string {
 if len(controlIDs) == 0 {
 return "not_assessed"
 }
-allValidated, anyDone := true, false
+allDone, anyPartial := true, false
 for _, cid := range controlIDs {
 ctrl, ok := cat.Controls[cid]
 if !ok {
 return "not_assessed"
 }
-effective := ctrl.Status
-if ctrl.DerivedStatus != "" {
-effective = ctrl.DerivedStatus
-}
+effective := catalog.EffectiveStatus(ctrl)
 switch effective {
 case "validated", "verified":
-anyDone = true
+anyPartial = true
 default:
-allValidated = false
+allDone = false
 }
 }
 switch {
-case allValidated:
+case allDone:
 return "full"
-case anyDone:
+case anyPartial:
 return "partial"
 default:
 return "none"

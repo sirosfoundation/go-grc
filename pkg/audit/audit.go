@@ -136,7 +136,7 @@ func (f *Finding) AddEvidence(ev Evidence) {
 }
 
 func (f *Finding) IsResolved() bool {
-	return f.Status == "resolved"
+	return f.Status == StatusResolved
 }
 
 func (f *Finding) HasEvidence() bool {

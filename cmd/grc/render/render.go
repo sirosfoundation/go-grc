@@ -36,51 +36,7 @@ controlURL   map[string]string
 frameworkURLs map[string]map[string]string // framework ID → req key → URL
 )
 
-// effectiveStatus returns DerivedStatus if set, otherwise Status.
-func effectiveStatus(ctrl *catalog.Control) string {
-if ctrl.DerivedStatus != "" {
-return ctrl.DerivedStatus
-}
-return ctrl.Status
-}
 
-// deriveControlStatuses populates DerivedStatus on controls based on findings.
-func deriveControlStatuses(cat *catalog.Catalog, audits *audit.AuditSet) {
-for id, ctrl := range cat.Controls {
-findings := audits.FindingsByControl[id]
-if len(findings) == 0 {
-continue
-}
-allResolved, allEvidence, anyInProgress := true, true, false
-for _, fref := range findings {
-f := fref.Finding
-if f.Status != "resolved" {
-allResolved = false
-}
-if !f.HasEvidence() {
-allEvidence = false
-}
-if f.Status == "in_progress" {
-anyInProgress = true
-}
-}
-var derived string
-switch {
-case allResolved && allEvidence:
-derived = "validated"
-case allResolved:
-derived = "verified"
-case anyInProgress:
-derived = "planned"
-default:
-derived = "to_do"
-}
-if derived != ctrl.Status {
-ctrl.DerivedStatus = derived
-cat.Controls[id] = ctrl
-}
-}
-}
 
 func run(root string) error {
 cfg := config.New(root)
@@ -99,7 +55,7 @@ return fmt.Errorf("loading mappings: %w", err)
 }
 
 // Derive effective control statuses from findings before rendering.
-deriveControlStatuses(cat, audits)
+catalog.DeriveControlStatuses(cat, audits)
 
 // Extract org from project repo for GitHub links.
 if parts := strings.SplitN(cfg.Project.Repo, "/", 2); len(parts) >= 1 {
@@ -121,7 +77,7 @@ fwCats[fw.ID] = fwCat
 var activeFindings []*audit.Finding
 for _, ref := range audits.FindingsByID {
 f := ref.Finding
-if f.TrackingIssue != nil && f.Status != "resolved" {
+if f.TrackingIssue != nil && !f.IsTerminal() {
 activeFindings = append(activeFindings, f)
 }
 }
@@ -208,7 +164,7 @@ func renderControlIndex(cat *catalog.Catalog) string {
 total := len(cat.Controls)
 verified, toDo, platform, operator := 0, 0, 0, 0
 for _, ctrl := range cat.Controls {
-if effectiveStatus(ctrl) == "verified" || effectiveStatus(ctrl) == "validated" {
+if catalog.EffectiveStatus(ctrl) == "verified" || catalog.EffectiveStatus(ctrl) == "validated" {
 verified++
 } else {
 toDo++
@@ -238,7 +194,7 @@ for _, ctrl := range group.Controls {
 slug := idSlug(ctrl.ID)
 fmt.Fprintf(&b, "| [%s](%s/%s) | %s | %s | %s | %s |\n",
 ctrl.ID, kind, slug, ctrl.Title,
-statusBadge(effectiveStatus(&ctrl)), ownerBadge(ctrl.Owner), csfBadge(ctrl.CSFFunction))
+statusBadge(catalog.EffectiveStatus(&ctrl)), ownerBadge(ctrl.Owner), csfBadge(ctrl.CSFFunction))
 }
 }
 b.WriteString("\n")
@@ -248,7 +204,7 @@ return b.String()
 
 func renderControlPage(ctrl catalog.Control, groupTitle, kind string, audits *audit.AuditSet, activeFindings []*audit.Finding, frameworkRefs map[string]map[string][]string, frameworks []config.FrameworkConfig) string {
 cid := ctrl.ID
-effective := effectiveStatus(&ctrl)
+effective := catalog.EffectiveStatus(&ctrl)
 
 var b strings.Builder
 fmt.Fprintf(&b, "---\nsidebar_label: \"%s\"\ntitle: \"%s — %s\"\n---\n\n", cid, cid, ctrl.Title)
@@ -597,7 +553,7 @@ ctrlTitle := ""
 ctrlStatus := ""
 if ok {
 ctrlTitle = ctrl.Title
-ctrlStatus = statusBadge(effectiveStatus(ctrl))
+ctrlStatus = statusBadge(catalog.EffectiveStatus(ctrl))
 }
 fmt.Fprintf(&b, "| %s | %s | %s |\n", link, ctrlTitle, ctrlStatus)
 }
@@ -682,7 +638,7 @@ func generateLanding(cfg *config.Config, cat *catalog.Catalog, activeFindings []
 total := len(cat.Controls)
 verified := 0
 for _, ctrl := range cat.Controls {
-if effectiveStatus(ctrl) == "verified" || effectiveStatus(ctrl) == "validated" {
+if catalog.EffectiveStatus(ctrl) == "verified" || catalog.EffectiveStatus(ctrl) == "validated" {
 verified++
 }
 }
@@ -838,6 +794,7 @@ m := map[string]string{
 "open":        `<span class="badge--to-do">open</span>`,
 "in_progress": `<span class="badge--to-do">in progress</span>`,
 "resolved":    `<span class="badge--verified">resolved</span>`,
+"accepted":   `<span class="badge--verified">accepted</span>`,
 }
 if v, ok := m[s]; ok {
 return v
