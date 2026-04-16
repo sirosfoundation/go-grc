@@ -1,0 +1,10 @@
+group:
+  id: "governance"
+  title: "Governance Controls"
+  controls:
+  - id: "GOV-POL-01"
+    title: "Security policy"
+    status: "verified"
+    owner: "security"
+    csf_function: "govern"
+    description: "Documented information security policy."

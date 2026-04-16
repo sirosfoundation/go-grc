@@ -1,0 +1,11 @@
+mappings:
+  - annex_a: "A.8.9"
+    controls:
+      - "SEC-AUTH-01"
+    coverage: "not_assessed"
+    owner: "platform"
+  - annex_a: "A.8.20"
+    controls:
+      - "SEC-WEB-01"
+    coverage: "not_assessed"
+    owner: "platform"

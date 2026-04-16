@@ -1,0 +1,16 @@
+group:
+  id: "web-security"
+  title: "Web Security Controls"
+  controls:
+  - id: "SEC-WEB-01"
+    title: "HTTP security headers"
+    status: "to_do"
+    owner: "wallet-frontend"
+    csf_function: "protect"
+    description: "CSP, SRI, and other security headers."
+  - id: "SEC-KEY-01"
+    title: "Key management"
+    status: "to_do"
+    owner: "security"
+    csf_function: "protect"
+    description: "Cryptographic key lifecycle management."

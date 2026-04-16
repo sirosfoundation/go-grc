@@ -1,0 +1,47 @@
+audit:
+  id: "SA-2025-001"
+  title: "Security Assessment Q1"
+  date: "2025-03-15"
+  assurance: "moderate"
+  scope: "platform"
+  method: "architecture_review"
+findings:
+  - id: "F-001"
+    title: "Missing session timeout"
+    severity: "high"
+    status: "resolved"
+    owner: "wallet-frontend"
+    controls:
+      - "SEC-AUTH-01"
+      - "SEC-SESS-01"
+    description: "No idle session timeout configured."
+    eudi_reqs:
+      - "WTE_07"
+    resolved_date: "2025-06-01"
+    tracking_issue:
+      repo: "sirosfoundation/compliance"
+      number: 1
+    evidence:
+      - type: "merged_pr"
+        ref: "sirosfoundation/wallet-frontend#74"
+        description: "Session idle timeout PR"
+        collected_at: "2025-06-01"
+  - id: "F-002"
+    title: "Missing CSP headers"
+    severity: "medium"
+    status: "in_progress"
+    owner: "wallet-frontend"
+    controls:
+      - "SEC-WEB-01"
+    description: "No Content-Security-Policy header."
+    tracking_issue:
+      repo: "sirosfoundation/compliance"
+      number: 2
+  - id: "F-003"
+    title: "No key rotation policy"
+    severity: "high"
+    status: "open"
+    owner: "security"
+    controls:
+      - "SEC-KEY-01"
+    description: "Signing keys have no rotation schedule."

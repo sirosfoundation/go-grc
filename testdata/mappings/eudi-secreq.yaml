@@ -1,0 +1,18 @@
+framework: "EUDI ARF"
+version: "1.4.1"
+requirements:
+  - id: "WTE_07"
+    title: "Wallet Trust Evidence"
+    result: "not_assessed"
+    status: "to_do"
+    owner: "platform"
+    controls:
+      - "SEC-AUTH-01"
+      - "SEC-SESS-01"
+  - id: "WTE_08"
+    title: "Key attestation"
+    result: "not_assessed"
+    status: "to_do"
+    owner: "operator"
+    controls:
+      - "SEC-KEY-01"

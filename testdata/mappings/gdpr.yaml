@@ -1,0 +1,7 @@
+mappings:
+  - match_name: "Art.32 Security of processing"
+    controls:
+      - "SEC-AUTH-01"
+      - "SEC-KEY-01"
+    coverage: "not_assessed"
+    owner: "platform"

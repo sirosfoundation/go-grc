@@ -1,0 +1,16 @@
+group:
+  id: "authentication"
+  title: "Authentication Controls"
+  controls:
+  - id: "SEC-AUTH-01"
+    title: "Authentication mechanism"
+    status: "verified"
+    owner: "go-wallet-backend"
+    csf_function: "protect"
+    description: "Strong authentication for all user-facing endpoints."
+  - id: "SEC-SESS-01"
+    title: "Session management"
+    status: "to_do"
+    owner: "wallet-frontend"
+    csf_function: "protect"
+    description: "Secure session lifecycle management."
