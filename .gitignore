@@ -2,7 +2,7 @@ bin/
 dist/
 cover.out
 cover.html
-export/
+/export/
 *.exe
 *.dll
 *.so
