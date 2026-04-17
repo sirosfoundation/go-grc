@@ -38,7 +38,7 @@ Phase 4: Collect evidence from closed issues and merged PRs.`,
 	}
 
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would happen without making changes")
-	cmd.Flags().StringVar(&repo, "repo", config.DefaultRepo, "Target repo for new tracking issues")
+	cmd.Flags().StringVar(&repo, "repo", "", "Target repo for new tracking issues (default: from .grc.yaml)")
 
 	linkCmd := &cobra.Command{
 		Use:   "link FINDING_ID OWNER/REPO#NUMBER",
@@ -57,12 +57,15 @@ Phase 4: Collect evidence from closed issues and merged PRs.`,
 }
 
 func run(root, repo string, dryRun bool) error {
-	cfg := config.New(root)
+	cfg, err := config.New(root)
+if err != nil {
+return fmt.Errorf("loading config: %w", err)
+}
 	ctx := context.Background()
 
 	token := os.Getenv("GITHUB_TOKEN")
 	if token == "" {
-		return fmt.Errorf("GITHUB_TOKEN not set")
+		return fmt.Errorf("GITHUB_TOKEN environment variable not set — create one at https://github.com/settings/tokens")
 	}
 
 	client := ghpkg.NewWithToken(ctx, token)
@@ -268,7 +271,10 @@ func run(root, repo string, dryRun bool) error {
 }
 
 func runLink(root, findingID, ref string, isPR bool) error {
-	cfg := config.New(root)
+	cfg, err := config.New(root)
+if err != nil {
+return fmt.Errorf("loading config: %w", err)
+}
 	audits, err := audit.Load(cfg.AuditsDir)
 	if err != nil {
 		return fmt.Errorf("loading audits: %w", err)

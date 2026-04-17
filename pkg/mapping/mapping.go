@@ -23,11 +23,13 @@ WorkStatus string   // value from work_status_field (optional, e.g. EUDI "status
 Controls   []string // mapped control IDs
 Owner      string
 Notes      string // value from notes_field
+Raw        map[string]interface{} // all original YAML fields (preserved on save)
 }
 
 // FrameworkMapping holds all mapping entries for one framework.
 type FrameworkMapping struct {
 Entries []MappingEntry
+Extra   map[string]interface{} // non-list top-level keys (e.g. framework, version)
 }
 
 // Mappings maps framework ID → loaded mapping.
@@ -63,10 +65,13 @@ continue
 }
 entries := make([]map[string]interface{}, len(fm.Entries))
 for i, e := range fm.Entries {
-raw := buildRaw(e, fw)
-entries[i] = raw
+entries[i] = mergeRaw(e, fw)
 }
-out := map[string]interface{}{fw.ListKey: entries}
+out := make(map[string]interface{})
+for k, v := range fm.Extra {
+out[k] = v
+}
+out[fw.ListKey] = entries
 data, err := yaml.Marshal(out)
 if err != nil {
 return fmt.Errorf("marshaling %s: %w", fw.MappingFile, err)
@@ -98,8 +103,15 @@ if m, ok := item.(map[string]interface{}); ok {
 list = append(list, m)
 }
 }
+extra := make(map[string]interface{})
+for k, v := range raw {
+if k != fw.ListKey {
+extra[k] = v
+}
+}
 fm := &FrameworkMapping{
 Entries: make([]MappingEntry, len(list)),
+Extra:   extra,
 }
 for i, e := range list {
 fm.Entries[i] = extractEntry(e, fw)
@@ -113,6 +125,7 @@ Key:    getStr(raw, fw.KeyField),
 Status: getStr(raw, fw.StatusField),
 Owner:  getStr(raw, "owner"),
 Notes:  getStr(raw, fw.NotesField),
+Raw:    raw,
 }
 if fw.WorkStatusField != "" {
 entry.WorkStatus = getStr(raw, fw.WorkStatusField)
@@ -129,14 +142,18 @@ entry.Controls = append(entry.Controls, s)
 return entry
 }
 
-func buildRaw(e MappingEntry, fw config.FrameworkConfig) map[string]interface{} {
-raw := map[string]interface{}{
-fw.KeyField:    e.Key,
-fw.StatusField: e.Status,
-"controls":     e.Controls,
-"owner":        e.Owner,
+func mergeRaw(e MappingEntry, fw config.FrameworkConfig) map[string]interface{} {
+raw := make(map[string]interface{})
+// Start from original entry to preserve unknown fields.
+for k, v := range e.Raw {
+raw[k] = v
 }
-if fw.WorkStatusField != "" && e.WorkStatus != "" {
+// Overlay the fields we manage.
+raw[fw.KeyField] = e.Key
+raw[fw.StatusField] = e.Status
+raw["controls"] = e.Controls
+raw["owner"] = e.Owner
+if fw.WorkStatusField != "" {
 raw[fw.WorkStatusField] = e.WorkStatus
 }
 if e.Notes != "" {

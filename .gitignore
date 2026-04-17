@@ -7,3 +7,4 @@ cover.html
 *.dll
 *.so
 *.dylib
+/grc

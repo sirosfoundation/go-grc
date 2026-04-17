@@ -23,7 +23,10 @@ func NewCommand() *cobra.Command {
 }
 
 func run(root string) error {
-	cfg := config.New(root)
+	cfg, err := config.New(root)
+if err != nil {
+return fmt.Errorf("loading config: %w", err)
+}
 
 	cat, err := catalog.Load(cfg.CatalogDir, cfg.CatalogSubdirs...)
 	if err != nil {

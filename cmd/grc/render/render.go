@@ -39,7 +39,10 @@ frameworkURLs map[string]map[string]string // framework ID → req key → URL
 
 
 func run(root string) error {
-cfg := config.New(root)
+cfg, err := config.New(root)
+if err != nil {
+return fmt.Errorf("loading config: %w", err)
+}
 
 cat, err := catalog.Load(cfg.CatalogDir, cfg.CatalogSubdirs...)
 if err != nil {
@@ -73,7 +76,7 @@ fwCats[fw.ID] = fwCat
 }
 }
 
-// Active findings (have tracking issue, not resolved)
+// Active findings (have tracking issue, not terminal)
 var activeFindings []*audit.Finding
 for _, ref := range audits.FindingsByID {
 f := ref.Finding
@@ -90,7 +93,7 @@ controlURL = make(map[string]string)
 frameworkURLs = make(map[string]map[string]string)
 
 for _, group := range cat.Groups {
-kind := groupKind(group.ID)
+kind := groupKind(group)
 for _, ctrl := range group.Controls {
 slug := idSlug(ctrl.ID)
 controlURL[ctrl.ID] = "/controls/" + kind + "/" + slug
@@ -147,7 +150,7 @@ dir := filepath.Join(cfg.SiteDir, "controls")
 writePage(filepath.Join(dir, "index.md"), renderControlIndex(cat))
 
 for _, group := range cat.Groups {
-kind := groupKind(group.ID)
+kind := groupKind(group)
 catDir := filepath.Join(dir, kind)
 writePage(filepath.Join(catDir, "_category_.json"), categoryJSON(kindLabel(kind)+" Controls", kindPosition(kind)))
 
@@ -187,7 +190,7 @@ label = "Organizational Controls (Operator-Required)"
 }
 fmt.Fprintf(&b, "## %s\n\n| ID | Title | Status | Owner | CSF Function |\n|----|-------|--------|-------|-------------|\n", label)
 for _, group := range cat.Groups {
-if groupKind(group.ID) != kind {
+if groupKind(group) != kind {
 continue
 }
 for _, ctrl := range group.Controls {
@@ -580,27 +583,7 @@ return b.String()
 }
 
 func findingMatchesReq(f *audit.Finding, reqID, fwID string) bool {
-switch fwID {
-case "eudi":
-for _, r := range f.EUDIReqs {
-if r == reqID {
-return true
-}
-}
-case "iso27001":
-for _, a := range f.AnnexA {
-if a == reqID {
-return true
-}
-}
-case "owasp-asvs":
-for _, s := range f.ASVSSections {
-if s == reqID {
-return true
-}
-}
-}
-return false
+return f.MatchesReq(fwID, reqID)
 }
 
 // ---------------------------------------------------------------------------
@@ -665,17 +648,7 @@ fmt.Fprintf(&b, `## Quick Links
 - **[Controls](controls)** %s Full catalog of %d security controls
 - **[Frameworks](frameworks)** %s Coverage against %s
 - **[Findings](findings)** %s Summary of audit findings (tracked as GitHub issues)
-- **[Deployment Checklist](checklist)** %s Operator requirements for each deployment
-
-## For Deployment Operators
-
-If you are deploying this platform, start with the
-[Deployment Checklist](checklist) for all organizational requirements, and download the
-OSCAL component definition
-to bootstrap your own compliance assessment.
-
-See [How It Works](workflows) for architecture and workflow details.
-`, "\u2014", total, "\u2014", fwList, "\u2014", "\u2014")
+`, "\u2014", total, "\u2014", fwList, "\u2014")
 return writePage(filepath.Join(cfg.SiteDir, "index.md"), b.String())
 }
 
@@ -712,13 +685,11 @@ s = nonAlnum.ReplaceAllString(s, "_")
 return strings.Trim(s, "_")
 }
 
-func groupKind(groupID string) string {
-switch groupID {
-case "governance", "operations", "people", "physical":
-return "organizational"
-default:
-return "technical"
+func groupKind(group catalog.Group) string {
+if group.SourceDir != "" {
+return group.SourceDir
 }
+return "technical"
 }
 
 func kindLabel(kind string) string {
@@ -884,24 +855,37 @@ return refs
 
 // --- ENISA reference resolution (applied to EUDI descriptions) ---
 
-func resolveENISARefs(text string) string {
-replacements := []struct{ pattern, replacement string }{
-{`OWASP\s+Application\s+Security\s+Verification\s+Standard\s*\[i\.10\]`,
+// Pre-compiled ENISA reference patterns.
+var enisaRefPatterns []struct {
+re          *regexp.Regexp
+replacement string
+}
+
+var arfRe *regexp.Regexp
+
+func init() {
+enisaRefPatterns = []struct {
+re          *regexp.Regexp
+replacement string
+}{
+{regexp.MustCompile(`OWASP\s+Application\s+Security\s+Verification\s+Standard\s*\[i\.10\]`),
 "[OWASP ASVS](https://owasp.org/www-project-application-security-verification-standard/)"},
-{`ECCG\s+Agreed\s+Cryptograph(?:y|ic)\s+Mechanisms\s*\[2\]`,
+{regexp.MustCompile(`ECCG\s+Agreed\s+Cryptograph(?:y|ic)\s+Mechanisms\s*\[2\]`),
 "[ECCG Agreed Cryptographic Mechanisms](https://www.enisa.europa.eu/topics/certification/eccg)"},
-{`CIR\s*\(EU\)\s*2024/2981\s*\[i\.3\]`,
+{regexp.MustCompile(`CIR\s*\(EU\)\s*2024/2981\s*\[i\.3\]`),
 "[CIR (EU) 2024/2981](https://eur-lex.europa.eu/eli/reg_impl/2024/2981/oj)"},
-{`CIR\s*\(EU\)\s*2015/1502\s*\[i\.2\]`,
+{regexp.MustCompile(`CIR\s*\(EU\)\s*2015/1502\s*\[i\.2\]`),
 "[CIR (EU) 2015/1502](https://eur-lex.europa.eu/eli/reg_impl/2015/1502/oj)"},
-{`EN\s+319\s+401\s*\[1\]`,
+{regexp.MustCompile(`EN\s+319\s+401\s*\[1\]`),
 "[EN 319 401](https://www.etsi.org/deliver/etsi_en/319400_319499/319401/)"},
 }
-for _, r := range replacements {
-re := regexp.MustCompile(r.pattern)
-text = re.ReplaceAllString(text, r.replacement)
+arfRe = regexp.MustCompile(`\[ARF ([^\]]+)\]`)
 }
-arfRe := regexp.MustCompile(`\[ARF ([^\]]+)\]`)
+
+func resolveENISARefs(text string) string {
+for _, r := range enisaRefPatterns {
+text = r.re.ReplaceAllString(text, r.replacement)
+}
 text = arfRe.ReplaceAllString(text, "[ARF $1](https://eudi.dev/2.8.0/architecture-and-reference-framework-main/)")
 return text
 }

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -106,7 +107,8 @@ type Config struct {
 }
 
 // New loads configuration from .grc.yaml if present, falling back to defaults.
-func New(root string) *Config {
+// Returns an error if .grc.yaml exists but is malformed.
+func New(root string) (*Config, error) {
 	cfg := &Config{
 		Root:        root,
 		CatalogDir:  filepath.Join(root, "catalog"),
@@ -131,18 +133,12 @@ func New(root string) *Config {
 		for i := range cfg.Frameworks {
 			cfg.Frameworks[i].ApplyDefaults()
 		}
-		return cfg
+		return cfg, nil
 	}
 
 	var grc GRCFile
 	if err := yaml.Unmarshal(data, &grc); err != nil {
-		// Malformed — use defaults including default frameworks.
-		cfg.Frameworks = make([]FrameworkConfig, len(DefaultFrameworks))
-		copy(cfg.Frameworks, DefaultFrameworks)
-		for i := range cfg.Frameworks {
-			cfg.Frameworks[i].ApplyDefaults()
-		}
-		return cfg
+		return nil, fmt.Errorf("parsing .grc.yaml: %w", err)
 	}
 
 	// Project
@@ -193,5 +189,27 @@ func New(root string) *Config {
 		cfg.Frameworks[i].ApplyDefaults()
 	}
 
-	return cfg
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+
+// Validate checks the config for common mistakes.
+func (c *Config) Validate() error {
+	seen := make(map[string]bool)
+	for _, fw := range c.Frameworks {
+		if fw.ID == "" {
+			return fmt.Errorf("framework missing required field: id")
+		}
+		if seen[fw.ID] {
+			return fmt.Errorf("duplicate framework id: %s", fw.ID)
+		}
+		seen[fw.ID] = true
+		if fw.KeyField == "" {
+			return fmt.Errorf("framework %s: missing required field: key_field", fw.ID)
+		}
+	}
+	return nil
 }

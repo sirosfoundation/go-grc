@@ -113,3 +113,90 @@ func TestSave(t *testing.T) {
 		t.Errorf("expected 3 findings after round-trip, got %d", len(set2.FindingsByID))
 	}
 }
+
+func TestFinding_MatchesReq(t *testing.T) {
+	tests := []struct {
+		name   string
+		f      audit.Finding
+		fwID   string
+		reqID  string
+		expect bool
+	}{
+		{
+			name:   "generic FrameworkRefs match",
+			f:      audit.Finding{FrameworkRefs: map[string][]string{"eudi": {"SR-01", "SR-02"}}},
+			fwID:   "eudi",
+			reqID:  "SR-02",
+			expect: true,
+		},
+		{
+			name:   "generic FrameworkRefs miss",
+			f:      audit.Finding{FrameworkRefs: map[string][]string{"eudi": {"SR-01"}}},
+			fwID:   "eudi",
+			reqID:  "SR-99",
+			expect: false,
+		},
+		{
+			name:   "legacy EUDIReqs match",
+			f:      audit.Finding{EUDIReqs: []string{"SR-01"}},
+			fwID:   "eudi",
+			reqID:  "SR-01",
+			expect: true,
+		},
+		{
+			name:   "legacy AnnexA match",
+			f:      audit.Finding{AnnexA: []string{"A.5.1"}},
+			fwID:   "iso27001",
+			reqID:  "A.5.1",
+			expect: true,
+		},
+		{
+			name:   "legacy GDPRItems match",
+			f:      audit.Finding{GDPRItems: []string{"art5"}},
+			fwID:   "gdpr",
+			reqID:  "art5",
+			expect: true,
+		},
+		{
+			name:   "legacy ASVSSections match",
+			f:      audit.Finding{ASVSSections: []string{"V2.1"}},
+			fwID:   "owasp-asvs",
+			reqID:  "V2.1",
+			expect: true,
+		},
+		{
+			name:   "unknown framework no match",
+			f:      audit.Finding{},
+			fwID:   "unknown",
+			reqID:  "anything",
+			expect: false,
+		},
+		{
+			name:   "generic overrides legacy",
+			f:      audit.Finding{FrameworkRefs: map[string][]string{"eudi": {"SR-X"}}, EUDIReqs: []string{"SR-01"}},
+			fwID:   "eudi",
+			reqID:  "SR-X",
+			expect: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.f.MatchesReq(tt.fwID, tt.reqID)
+			if got != tt.expect {
+				t.Errorf("MatchesReq(%q, %q) = %v, want %v", tt.fwID, tt.reqID, got, tt.expect)
+			}
+		})
+	}
+}
+
+func TestFinding_StatusHelpers(t *testing.T) {
+	f := &audit.Finding{Status: "open"}
+	if f.IsResolved() {
+		t.Error("open finding should not be resolved")
+	}
+
+	f.Status = "resolved"
+	if !f.IsResolved() {
+		t.Error("resolved finding should be resolved")
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"github.com/sirosfoundation/go-grc/cmd/grc/render"
 	"github.com/sirosfoundation/go-grc/cmd/grc/status"
 	"github.com/sirosfoundation/go-grc/cmd/grc/sync"
+	"github.com/sirosfoundation/go-grc/cmd/grc/validate"
 )
 
 var (
@@ -34,6 +35,7 @@ func main() {
 	rootCmd.AddCommand(render.NewCommand())
 	rootCmd.AddCommand(export.NewCommand())
 	rootCmd.AddCommand(status.NewCommand())
+	rootCmd.AddCommand(validate.NewCommand())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

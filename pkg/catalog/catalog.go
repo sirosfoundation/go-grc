@@ -34,9 +34,10 @@ type Control struct {
 
 // Group is a named collection of controls.
 type Group struct {
-	ID       string    `yaml:"id"`
-	Title    string    `yaml:"title"`
-	Controls []Control `yaml:"-"`
+	ID         string    `yaml:"id"`
+	Title      string    `yaml:"title"`
+	Controls   []Control `yaml:"-"`
+	SourceDir  string    `yaml:"-"` // subdir the group was loaded from (e.g. "technical", "organizational")
 }
 
 // GroupFile is the top-level structure of a catalog YAML file.
@@ -97,6 +98,7 @@ func Load(catalogDir string, subdirs ...string) (*Catalog, error) {
 
 			g := gf.Group
 			g.Controls = gf.Controls
+			g.SourceDir = subdir
 			cat.Groups = append(cat.Groups, g)
 			for i := range cat.Groups[len(cat.Groups)-1].Controls {
 				ctrl := &cat.Groups[len(cat.Groups)-1].Controls[i]

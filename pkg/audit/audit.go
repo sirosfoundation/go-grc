@@ -41,8 +41,9 @@ type Finding struct {
 	EUDIReqs      []string   `yaml:"eudi_reqs,omitempty"`
 	AnnexA        []string   `yaml:"annex_a,omitempty"`
 	GDPRItems     []string   `yaml:"gdpr_items,omitempty"`
-	ASVSSections  []string   `yaml:"asvs_sections,omitempty"`
-	TrackingIssue *IssueRef  `yaml:"tracking_issue,omitempty"`
+	ASVSSections  []string            `yaml:"asvs_sections,omitempty"`
+	FrameworkRefs map[string][]string `yaml:"framework_refs,omitempty"` // framework ID -> requirement IDs (generic)
+	TrackingIssue *IssueRef           `yaml:"tracking_issue,omitempty"`
 	Issues        []IssueRef `yaml:"issues,omitempty"`
 	PullRequests  []IssueRef `yaml:"pull_requests,omitempty"`
 	Evidence      []Evidence `yaml:"evidence,omitempty"`
@@ -133,6 +134,37 @@ func (f *Finding) AddEvidence(ev Evidence) {
 		ev.CollectedAt = time.Now().UTC().Format("2006-01-02")
 	}
 	f.Evidence = append(f.Evidence, ev)
+}
+
+
+// MatchesReq reports whether the finding references the given requirement
+// in the specified framework. Checks both the generic FrameworkRefs map
+// and the legacy per-framework fields for backward compatibility.
+func (f *Finding) MatchesReq(fwID, reqID string) bool {
+	if refs, ok := f.FrameworkRefs[fwID]; ok {
+		for _, r := range refs {
+			if r == reqID {
+				return true
+			}
+		}
+	}
+	var legacy []string
+	switch fwID {
+	case "eudi":
+		legacy = f.EUDIReqs
+	case "iso27001":
+		legacy = f.AnnexA
+	case "gdpr":
+		legacy = f.GDPRItems
+	case "owasp-asvs":
+		legacy = f.ASVSSections
+	}
+	for _, r := range legacy {
+		if r == reqID {
+			return true
+		}
+	}
+	return false
 }
 
 func (f *Finding) IsResolved() bool {

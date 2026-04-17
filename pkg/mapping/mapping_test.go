@@ -16,7 +16,7 @@ return filepath.Join(filepath.Dir(f), "..", "..", "testdata")
 }
 
 func testFrameworks() []config.FrameworkConfig {
-cfg := config.New(testdataDir())
+cfg, _ := config.New(testdataDir())
 return cfg.Frameworks
 }
 
@@ -98,4 +98,72 @@ t.Fatalf("Re-load error: %v", err)
 if m2["eudi"].Entries[0].Status != "compliant" {
 t.Errorf("expected compliant after save, got %q", m2["eudi"].Entries[0].Status)
 }
+}
+
+func TestSave_PreservesExtraFields(t *testing.T) {
+tmp := t.TempDir()
+fws := testFrameworks()
+
+// Copy EUDI fixture (has framework+version top-level fields)
+data, err := os.ReadFile(filepath.Join(testdataDir(), "mappings", "eudi-secreq.yaml"))
+if err != nil {
+t.Fatal(err)
+}
+if err := os.WriteFile(filepath.Join(tmp, "eudi-secreq.yaml"), data, 0644); err != nil {
+t.Fatal(err)
+}
+// Copy other fixtures needed for Load
+for _, name := range []string{"iso27001-annexa.yaml", "gdpr.yaml"} {
+d, err := os.ReadFile(filepath.Join(testdataDir(), "mappings", name))
+if err != nil {
+t.Fatal(err)
+}
+if err := os.WriteFile(filepath.Join(tmp, name), d, 0644); err != nil {
+t.Fatal(err)
+}
+}
+
+m, err := mapping.Load(tmp, fws)
+if err != nil {
+t.Fatalf("Load: %v", err)
+}
+
+eudi := m["eudi"]
+// Verify Extra captured the framework/version keys
+if eudi.Extra["framework"] != "EUDI ARF" {
+t.Errorf("Extra[framework] = %v, want 'EUDI ARF'", eudi.Extra["framework"])
+}
+if eudi.Extra["version"] != "1.4.1" {
+t.Errorf("Extra[version] = %v, want '1.4.1'", eudi.Extra["version"])
+}
+
+// Save and re-read raw YAML to confirm fields are preserved
+if err := m.Save(tmp, fws); err != nil {
+t.Fatalf("Save: %v", err)
+}
+
+raw, err := os.ReadFile(filepath.Join(tmp, "eudi-secreq.yaml"))
+if err != nil {
+t.Fatal(err)
+}
+content := string(raw)
+if !contains(content, "framework:") {
+t.Error("saved file missing 'framework:' key")
+}
+if !contains(content, "version:") {
+t.Error("saved file missing 'version:' key")
+}
+}
+
+func contains(s, substr string) bool {
+return len(s) >= len(substr) && (s == substr || len(s) > 0 && findSubstr(s, substr))
+}
+
+func findSubstr(s, sub string) bool {
+for i := 0; i+len(sub) <= len(s); i++ {
+if s[i:i+len(sub)] == sub {
+return true
+}
+}
+return false
 }
