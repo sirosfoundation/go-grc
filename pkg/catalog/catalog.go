@@ -21,7 +21,7 @@ type Control struct {
 	Description            string   `yaml:"description"`
 	Category               string   `yaml:"category"`     // technical | policy | process | physical
 	CSFFunction            string   `yaml:"csf_function"` // identify | protect | detect | respond | recover | govern
-	Status                 string   `yaml:"status"`       // verified | to_do | planned | validated
+	Status                 string   `yaml:"status"`       // verified | to_do | in_progress | validated
 	Owner                  string   `yaml:"owner"`        // platform | operator | shared
 	Components             []string `yaml:"components,omitempty"`
 	References             []string `yaml:"references,omitempty"`

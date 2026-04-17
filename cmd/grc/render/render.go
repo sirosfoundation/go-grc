@@ -712,7 +712,7 @@ func statusBadge(s string) string {
 m := map[string]string{
 "verified":  `<span class="badge--verified">verified</span>`,
 "to_do":     `<span class="badge--to-do">to_do</span>`,
-"planned":   `<span class="badge--to-do">planned</span>`,
+"in_progress": `<span class="badge--to-do">in_progress</span>`,
 "validated": `<span class="badge--verified">validated</span>`,
 }
 if v, ok := m[s]; ok {

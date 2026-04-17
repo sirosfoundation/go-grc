@@ -37,7 +37,7 @@ var validCSFFunctions = map[string]bool{
 }
 
 var validControlStatuses = map[string]bool{
-	"verified": true, "to_do": true, "planned": true, "validated": true,
+	"verified": true, "to_do": true, "in_progress": true, "validated": true,
 }
 
 var validFindingStatuses = map[string]bool{

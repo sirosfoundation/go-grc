@@ -4,10 +4,10 @@ import "github.com/sirosfoundation/go-grc/pkg/audit"
 
 // ControlStatus constants for derived control states.
 const (
-	ControlValidated = "validated" // all findings resolved with evidence
-	ControlVerified  = "verified"  // all findings resolved, some lack evidence
-	ControlPlanned   = "planned"   // at least one finding is being worked on
-	ControlToDo      = "to_do"     // findings exist but none are resolved or active
+	ControlValidated  = "validated"   // all findings resolved with evidence
+	ControlVerified   = "verified"    // all findings resolved, some lack evidence
+	ControlInProgress = "in_progress" // at least one finding is being worked on
+	ControlToDo       = "to_do"       // findings exist but none are resolved or active
 )
 
 // DeriveControlStatuses populates DerivedStatus on controls based on linked
@@ -53,7 +53,7 @@ func deriveFromFindings(findings []*audit.FindingRef) string {
 	case allTerminal:
 		return ControlVerified
 	case anyActive:
-		return ControlPlanned
+		return ControlInProgress
 	default:
 		return ControlToDo
 	}

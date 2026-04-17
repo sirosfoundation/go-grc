@@ -73,13 +73,13 @@ return fmt.Errorf("loading config: %w", err)
 	fmt.Println()
 
 	totalCtrls := len(cat.Controls)
-	verified, toDo, planned := 0, 0, 0
+	verified, toDo, inProgress := 0, 0, 0
 	for _, ctrl := range cat.Controls {
 		switch ctrl.Status {
 		case "verified", "validated":
 			verified++
-		case "planned":
-			planned++
+		case "in_progress":
+			inProgress++
 		default:
 			toDo++
 		}
@@ -87,7 +87,7 @@ return fmt.Errorf("loading config: %w", err)
 
 	fmt.Printf("Controls: %d total\n", totalCtrls)
 	fmt.Printf("  Verified:      %d\n", verified)
-	fmt.Printf("  Planned:       %d\n", planned)
+	fmt.Printf("  In Progress:   %d\n", inProgress)
 	fmt.Printf("  To Do:         %d\n", toDo)
 	fmt.Println()
 
