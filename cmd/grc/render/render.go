@@ -18,14 +18,16 @@ import (
 )
 
 func NewCommand() *cobra.Command {
+var profile string
 cmd := &cobra.Command{
 Use:   "render",
 Short: "Generate Docusaurus site pages from catalog, mappings, and findings",
 RunE: func(cmd *cobra.Command, args []string) error {
 root, _ := cmd.Flags().GetString("root")
-return run(root)
+return run(root, profile)
 },
 }
+cmd.Flags().StringVar(&profile, "profile", "public", `Render profile: "public" (no status/findings) or "private" (full detail)`)
 return cmd
 }
 
@@ -38,7 +40,7 @@ frameworkURLs map[string]map[string]string // framework ID → req key → URL
 
 
 
-func run(root string) error {
+func run(root, profile string) error {
 cfg, err := config.New(root)
 if err != nil {
 return fmt.Errorf("loading config: %w", err)
@@ -57,8 +59,12 @@ if err != nil {
 return fmt.Errorf("loading mappings: %w", err)
 }
 
+isPublic := profile != "private"
+
 // Derive effective control statuses from findings before rendering.
+if !isPublic {
 catalog.DeriveControlStatuses(cat, audits)
+}
 
 // Extract org from project repo for GitHub links.
 if parts := strings.SplitN(cfg.Project.Repo, "/", 2); len(parts) >= 1 {
@@ -76,8 +82,9 @@ fwCats[fw.ID] = fwCat
 }
 }
 
-// Active findings (have tracking issue, not terminal)
+// Active findings (have tracking issue, not terminal) — private only
 var activeFindings []*audit.Finding
+if !isPublic {
 for _, ref := range audits.FindingsByID {
 f := ref.Finding
 if f.TrackingIssue != nil && !f.IsTerminal() {
@@ -87,6 +94,7 @@ activeFindings = append(activeFindings, f)
 sort.Slice(activeFindings, func(i, j int) bool {
 return sevRank(activeFindings[i].Severity) > sevRank(activeFindings[j].Severity)
 })
+}
 
 // Build URL maps
 controlURL = make(map[string]string)
@@ -121,19 +129,21 @@ os.RemoveAll(filepath.Join(cfg.SiteDir, subdir))
 }
 
 // Controls
-if err := generateControls(cfg, cat, audits, activeFindings, frameworkRefs); err != nil {
+if err := generateControls(cfg, cat, audits, activeFindings, frameworkRefs, isPublic); err != nil {
 return err
 }
 // Frameworks
-if err := generateFrameworks(cfg, cat, maps, audits, activeFindings, fwCats); err != nil {
+if err := generateFrameworks(cfg, cat, maps, audits, activeFindings, fwCats, isPublic); err != nil {
 return err
 }
 // Findings
+if !isPublic {
 if err := generateFindings(cfg, audits, activeFindings); err != nil {
 return err
 }
+}
 // Landing page
-if err := generateLanding(cfg, cat, activeFindings); err != nil {
+if err := generateLanding(cfg, cat, activeFindings, isPublic); err != nil {
 return err
 }
 
@@ -145,9 +155,9 @@ return nil
 // Control pages
 // ---------------------------------------------------------------------------
 
-func generateControls(cfg *config.Config, cat *catalog.Catalog, audits *audit.AuditSet, activeFindings []*audit.Finding, frameworkRefs map[string]map[string][]string) error {
+func generateControls(cfg *config.Config, cat *catalog.Catalog, audits *audit.AuditSet, activeFindings []*audit.Finding, frameworkRefs map[string]map[string][]string, isPublic bool) error {
 dir := filepath.Join(cfg.SiteDir, "controls")
-writePage(filepath.Join(dir, "index.md"), renderControlIndex(cat))
+writePage(filepath.Join(dir, "index.md"), renderControlIndex(cat, isPublic))
 
 for _, group := range cat.Groups {
 kind := groupKind(group)
@@ -156,15 +166,40 @@ writePage(filepath.Join(catDir, "_category_.json"), categoryJSON(kindLabel(kind)
 
 for _, ctrl := range group.Controls {
 slug := idSlug(ctrl.ID)
-page := renderControlPage(ctrl, group.Title, kind, audits, activeFindings, frameworkRefs, cfg.Frameworks)
+page := renderControlPage(ctrl, group.Title, kind, audits, activeFindings, frameworkRefs, cfg.Frameworks, isPublic)
 writePage(filepath.Join(catDir, slug+".md"), page)
 }
 }
 return nil
 }
 
-func renderControlIndex(cat *catalog.Catalog) string {
+func renderControlIndex(cat *catalog.Catalog, isPublic bool) string {
 total := len(cat.Controls)
+var b strings.Builder
+b.WriteString("---\nsidebar_label: Overview\nsidebar_position: 1\ntitle: Controls Overview\n---\n\n# Controls Overview\n\n")
+
+if isPublic {
+fmt.Fprintf(&b, "%d security controls across the platform.\n\n", total)
+for _, kind := range []string{"technical", "organizational"} {
+label := "Technical Controls (Platform-Provided)"
+if kind == "organizational" {
+label = "Organizational Controls (Operator-Required)"
+}
+fmt.Fprintf(&b, "## %s\n\n| ID | Title | Owner | CSF Function |\n|----|-------|-------|-------------|\n", label)
+for _, group := range cat.Groups {
+if groupKind(group) != kind {
+continue
+}
+for _, ctrl := range group.Controls {
+slug := idSlug(ctrl.ID)
+fmt.Fprintf(&b, "| [%s](%s/%s) | %s | %s | %s |\n",
+ctrl.ID, kind, slug, ctrl.Title,
+ownerBadge(ctrl.Owner), csfBadge(ctrl.CSFFunction))
+}
+}
+b.WriteString("\n")
+}
+} else {
 assessed, verified := 0, 0
 for _, ctrl := range cat.Controls {
 eff := catalog.EffectiveStatus(ctrl)
@@ -175,12 +210,9 @@ if eff == "verified" || eff == "validated" {
 verified++
 }
 }
-var b strings.Builder
-b.WriteString("---\nsidebar_label: Overview\nsidebar_position: 1\ntitle: Controls Overview\n---\n\n# Controls Overview\n\n")
 fmt.Fprintf(&b, "%d of %d controls assessed (%d verified). "+
 "Controls not yet referenced by any audit are omitted.\n\n",
 assessed, total, verified)
-
 for _, kind := range []string{"technical", "organizational"} {
 label := "Technical Controls (Platform-Provided)"
 if kind == "organizational" {
@@ -203,10 +235,11 @@ statusBadge(catalog.EffectiveStatus(&ctrl)), ownerBadge(ctrl.Owner), csfBadge(ct
 }
 b.WriteString("\n")
 }
+}
 return b.String()
 }
 
-func renderControlPage(ctrl catalog.Control, groupTitle, kind string, audits *audit.AuditSet, activeFindings []*audit.Finding, frameworkRefs map[string]map[string][]string, frameworks []config.FrameworkConfig) string {
+func renderControlPage(ctrl catalog.Control, groupTitle, kind string, audits *audit.AuditSet, activeFindings []*audit.Finding, frameworkRefs map[string]map[string][]string, frameworks []config.FrameworkConfig, isPublic bool) string {
 cid := ctrl.ID
 effective := catalog.EffectiveStatus(&ctrl)
 
@@ -214,7 +247,9 @@ var b strings.Builder
 fmt.Fprintf(&b, "---\nsidebar_label: \"%s\"\ntitle: \"%s — %s\"\n---\n\n", cid, cid, ctrl.Title)
 fmt.Fprintf(&b, "# %s — %s\n\n", cid, ctrl.Title)
 b.WriteString("| Property | Value |\n|----------|-------|\n")
+if !isPublic {
 fmt.Fprintf(&b, "| **Status** | %s |\n", statusBadge(effective))
+}
 fmt.Fprintf(&b, "| **Owner** | %s |\n", ownerBadge(ctrl.Owner))
 fmt.Fprintf(&b, "| **Category** | %s |\n", ctrl.Category)
 fmt.Fprintf(&b, "| **CSF Function** | %s |\n", csfBadge(ctrl.CSFFunction))
@@ -244,7 +279,8 @@ fmt.Fprintf(&b, "- `%s`\n", r)
 }
 }
 
-// Linked findings
+// Linked findings (private only)
+if !isPublic {
 linked := audits.FindingsByControl[cid]
 if len(linked) > 0 {
 b.WriteString("\n## Audit Findings\n\n| Finding | Severity | Status |\n|---------|----------|--------|\n")
@@ -252,6 +288,8 @@ for _, ref := range linked {
 f := ref.Finding
 fmt.Fprintf(&b, "| %s — %s | %s | %s |\n", findingLink(f), f.Title, f.Severity, findingStatusBadge(f.Status))
 }
+}
+
 }
 
 // Framework cross-references (generic)
@@ -290,7 +328,7 @@ return b.String()
 // Framework pages (summary + per-requirement) — fully generic
 // ---------------------------------------------------------------------------
 
-func generateFrameworks(cfg *config.Config, cat *catalog.Catalog, maps mapping.Mappings, audits *audit.AuditSet, activeFindings []*audit.Finding, fwCats map[string]*catalog.FrameworkCatalog) error {
+func generateFrameworks(cfg *config.Config, cat *catalog.Catalog, maps mapping.Mappings, audits *audit.AuditSet, activeFindings []*audit.Finding, fwCats map[string]*catalog.FrameworkCatalog, isPublic bool) error {
 fwDir := filepath.Join(cfg.SiteDir, "frameworks")
 writePage(filepath.Join(fwDir, "index.md"), renderFrameworkIndex(cfg.Frameworks, maps))
 writePage(filepath.Join(fwDir, "_category_.json"), categoryJSON("Frameworks", 2))
@@ -300,7 +338,7 @@ fm := maps[fw.ID]
 if fm == nil {
 continue
 }
-if err := generateFramework(cfg, fw, fm, cat, audits, activeFindings, fwCats[fw.ID]); err != nil {
+if err := generateFramework(cfg, fw, fm, cat, audits, activeFindings, fwCats[fw.ID], isPublic); err != nil {
 return err
 }
 }
@@ -343,13 +381,13 @@ Assistant, RegScale, etc.) to bootstrap their own assessments.
 return b.String()
 }
 
-func generateFramework(cfg *config.Config, fw config.FrameworkConfig, fm *mapping.FrameworkMapping, cat *catalog.Catalog, audits *audit.AuditSet, activeFindings []*audit.Finding, fwCat *catalog.FrameworkCatalog) error {
+func generateFramework(cfg *config.Config, fw config.FrameworkConfig, fm *mapping.FrameworkMapping, cat *catalog.Catalog, audits *audit.AuditSet, activeFindings []*audit.Finding, fwCat *catalog.FrameworkCatalog, isPublic bool) error {
 dir := filepath.Join(cfg.SiteDir, "frameworks", fw.Slug)
 catLabel := fw.Name
 pos := fw.SidebarPosition + 1 // +1 since overview takes position 1
 writePage(filepath.Join(dir, "_category_.json"),
 fmt.Sprintf(`{"label":%q,"position":%d,"link":{"type":"doc","id":"frameworks/%s/index"}}`, catLabel, pos, fw.Slug)+"\n")
-writePage(filepath.Join(dir, "index.md"), renderFrameworkSummary(fw, fm, fwCat))
+writePage(filepath.Join(dir, "index.md"), renderFrameworkSummary(fw, fm, fwCat, isPublic))
 
 for _, e := range fm.Entries {
 slug := entrySlug(e.Key)
@@ -375,14 +413,14 @@ statusValue: e.Status,
 owner:       e.Owner,
 notes:       notes,
 controls:    e.Controls,
-}, rc, fw.ID, cat, activeFindings)
+}, rc, fw.ID, cat, activeFindings, isPublic)
 writePage(filepath.Join(dir, slug+".md"), page)
 }
 fmt.Printf("  %d %s pages\n", len(fm.Entries), fw.Name)
 return nil
 }
 
-func renderFrameworkSummary(fw config.FrameworkConfig, fm *mapping.FrameworkMapping, fwCat *catalog.FrameworkCatalog) string {
+func renderFrameworkSummary(fw config.FrameworkConfig, fm *mapping.FrameworkMapping, fwCat *catalog.FrameworkCatalog, isPublic bool) string {
 counts := map[string]int{}
 for _, e := range fm.Entries {
 counts[e.Status]++
@@ -391,15 +429,28 @@ counts[e.Status]++
 var b strings.Builder
 fmt.Fprintf(&b, "---\nsidebar_label: %s\ntitle: %s\n---\n\n# %s\n\n", fw.Name, fw.Name, fw.Name)
 
-// Filter out unassessed entries for display
+if isPublic {
+// Public: no dashboard, no status columns
+fmt.Fprintf(&b, "%d requirements mapped to controls.\n\n", len(fm.Entries))
+b.WriteString("## Requirements\n\n| Requirement | Title | Controls | Owner |\n|-------------|-------|----------|-------|\n")
+for _, e := range fm.Entries {
+title := ""
+if fwCat != nil {
+if ce := fwCat.ByID[e.Key]; ce != nil {
+title = ce.Title
+}
+}
+link := fwReqLink(e.Key, fw.ID)
+fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", link, title, controlLinks(e.Controls), ownerBadge(e.Owner))
+}
+} else {
+// Private: full dashboard + status
 assessed := 0
 for _, e := range fm.Entries {
 if !isUnassessedStatus(e.Status, fw.DeriveMode) {
 assessed++
 }
 }
-
-// Dashboard cards
 b.WriteString(`<div class="dashboard-grid">` + "\n")
 fmt.Fprintf(&b, `<div class="dashboard-card"><div class="number">%d</div><div class="label">Assessed</div></div>`+"\n", assessed)
 for _, sv := range orderedStatuses(fw.DeriveMode) {
@@ -412,8 +463,6 @@ fmt.Fprintf(&b, `<div class="dashboard-card"><div class="number">%d</div><div cl
 b.WriteString("</div>\n\n")
 fmt.Fprintf(&b, "%d of %d requirements assessed. "+
 "Requirements not yet referenced by any audit are omitted.\n\n", assessed, len(fm.Entries))
-
-// Table
 if fw.DeriveMode == "result" {
 statusMap := resultStatusMap()
 b.WriteString("## Requirements\n\n| Ref | Status | Controls | Owner |\n|-----|--------|----------|-------|\n")
@@ -452,6 +501,7 @@ title = ce.Title
 }
 link := fwReqLink(e.Key, fw.ID)
 fmt.Fprintf(&b, "| %s | %s | %s | %s | %s |\n", link, title, coverageSpan(e.Status), controlLinks(e.Controls), ownerBadge(e.Owner))
+}
 }
 }
 return b.String()
@@ -534,7 +584,7 @@ return map[string]string{
 }
 }
 
-func renderRequirementPage(reqID string, catEntry *catalog.FrameworkRequirement, description string, assess requirementAssessment, rc reqConfig, fwID string, cat *catalog.Catalog, activeFindings []*audit.Finding) string {
+func renderRequirementPage(reqID string, catEntry *catalog.FrameworkRequirement, description string, assess requirementAssessment, rc reqConfig, fwID string, cat *catalog.Catalog, activeFindings []*audit.Finding, isPublic bool) string {
 title := reqID
 section := ""
 if catEntry != nil {
@@ -559,19 +609,33 @@ b.WriteString("| Property | Value |\n|----------|-------|\n")
 if section != "" {
 fmt.Fprintf(&b, "| **Section** | %s |\n", section)
 }
+if !isPublic {
 sfLabel := strings.ReplaceAll(assess.statusField, "_", " ")
 sfLabel = strings.ToUpper(sfLabel[:1]) + sfLabel[1:]
 fmt.Fprintf(&b, "| **%s** | %s |\n", sfLabel, statusDisplay)
+}
 if assess.owner != "" {
 fmt.Fprintf(&b, "| **Owner** | %s |\n", ownerBadge(assess.owner))
 }
 b.WriteString("\n")
 
-if assess.notes != "" {
+if !isPublic && assess.notes != "" {
 fmt.Fprintf(&b, "## Assessment Notes\n\n%s\n\n", strings.TrimSpace(assess.notes))
 }
 
 if len(assess.controls) > 0 {
+if isPublic {
+b.WriteString("## Mapped Controls\n\n| Control | Title |\n|---------|-------|\n")
+for _, cid := range assess.controls {
+ctrl, ok := cat.Controls[cid]
+link := controlLink(cid)
+ctrlTitle := ""
+if ok {
+ctrlTitle = ctrl.Title
+}
+fmt.Fprintf(&b, "| %s | %s |\n", link, ctrlTitle)
+}
+} else {
 b.WriteString("## Mapped Controls\n\n| Control | Title | Status |\n|---------|-------|--------|\n")
 for _, cid := range assess.controls {
 ctrl, ok := cat.Controls[cid]
@@ -584,10 +648,12 @@ ctrlStatus = statusBadge(catalog.EffectiveStatus(ctrl))
 }
 fmt.Fprintf(&b, "| %s | %s | %s |\n", link, ctrlTitle, ctrlStatus)
 }
+}
 b.WriteString("\n")
 }
 
-// Related findings
+// Related findings (private only)
+if !isPublic {
 var related []*audit.Finding
 for _, f := range activeFindings {
 if findingMatchesReq(f, reqID, fwID) {
@@ -600,6 +666,8 @@ for _, f := range related {
 fmt.Fprintf(&b, "| %s \u2014 %s | %s | %s |\n", findingLink(f), f.Title, f.Severity, findingStatusBadge(f.Status))
 }
 b.WriteString("\n")
+}
+
 }
 
 fmt.Fprintf(&b, "---\n\n*Source: %s*\n", rc.source)
@@ -638,8 +706,26 @@ return b.String()
 // Landing page
 // ---------------------------------------------------------------------------
 
-func generateLanding(cfg *config.Config, cat *catalog.Catalog, activeFindings []*audit.Finding) error {
+func generateLanding(cfg *config.Config, cat *catalog.Catalog, activeFindings []*audit.Finding, isPublic bool) error {
 total := len(cat.Controls)
+// Build framework name list for quick links
+var fwNames []string
+for _, fw := range cfg.Frameworks {
+fwNames = append(fwNames, fw.Name)
+}
+fwList := strings.Join(fwNames, ", ")
+
+var b strings.Builder
+fmt.Fprintf(&b, "---\nsidebar_position: 1\nslug: /\ntitle: %s\n---\n\n# %s\n\n", cfg.Project.Name, cfg.Project.Name)
+
+if isPublic {
+b.WriteString("Security controls and compliance framework mappings.\n\n")
+fmt.Fprintf(&b, `## Quick Links
+
+- **[Controls](controls)** %s %d security controls
+- **[Frameworks](frameworks)** %s Mappings against %s
+`, "\u2014", total, "\u2014", fwList)
+} else {
 assessed, verified := 0, 0
 for _, ctrl := range cat.Controls {
 eff := catalog.EffectiveStatus(ctrl)
@@ -650,16 +736,6 @@ if eff == "verified" || eff == "validated" {
 verified++
 }
 }
-
-// Build framework name list for quick links
-var fwNames []string
-for _, fw := range cfg.Frameworks {
-fwNames = append(fwNames, fw.Name)
-}
-fwList := strings.Join(fwNames, ", ")
-
-var b strings.Builder
-fmt.Fprintf(&b, "---\nsidebar_position: 1\nslug: /\ntitle: %s\n---\n\n# %s\n\n", cfg.Project.Name, cfg.Project.Name)
 b.WriteString("Security controls, framework coverage, and compliance status.\n\n")
 fmt.Fprintf(&b, `<div class="dashboard-grid">
 <a href="controls" class="dashboard-card"><div class="number">%d</div><div class="label">Assessed Controls</div></a>
@@ -667,13 +743,13 @@ fmt.Fprintf(&b, `<div class="dashboard-grid">
 <a href="controls" class="dashboard-card"><div class="number">%d</div><div class="label">In Progress</div></a>
 <a href="findings" class="dashboard-card"><div class="number">%d</div><div class="label">Open Findings</div></a>
 </div>`+"\n\n", assessed, verified, assessed-verified, len(activeFindings))
-
 fmt.Fprintf(&b, `## Quick Links
 
 - **[Controls](controls)** %s %d of %d controls assessed
 - **[Frameworks](frameworks)** %s Coverage against %s
 - **[Findings](findings)** %s %d open audit findings
 `, "\u2014", assessed, total, "\u2014", fwList, "\u2014", len(activeFindings))
+}
 return writePage(filepath.Join(cfg.SiteDir, "index.md"), b.String())
 }
 
