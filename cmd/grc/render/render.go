@@ -905,6 +905,7 @@ func ownerBadge(s string) string {
 badges := map[string]string{
 "platform": `<span class="badge--platform">platform</span>`,
 "operator": `<span class="badge--operator">operator</span>`,
+"shared":   `<span class="badge--platform">platform</span> <span class="badge--operator">operator</span>`,
 }
 parts := strings.Split(s, ", ")
 var out []string
