@@ -61,6 +61,9 @@ func run(root, repo string, dryRun bool) error {
 if err != nil {
 return fmt.Errorf("loading config: %w", err)
 }
+	if repo == "" {
+		repo = cfg.Project.Repo
+	}
 	ctx := context.Background()
 
 	token := os.Getenv("GITHUB_TOKEN")
