@@ -65,7 +65,10 @@ return fmt.Errorf("loading config: %w", err)
 
 	token := os.Getenv("GITHUB_TOKEN")
 	if token == "" {
-		return fmt.Errorf("GITHUB_TOKEN environment variable not set — create one at https://github.com/settings/tokens")
+		token = os.Getenv("GH_TOKEN")
+	}
+	if token == "" {
+		return fmt.Errorf("GITHUB_TOKEN (or GH_TOKEN) environment variable not set — create one at https://github.com/settings/tokens")
 	}
 
 	client := ghpkg.NewWithToken(ctx, token)
