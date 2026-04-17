@@ -32,6 +32,7 @@ type FrameworkConfig struct {
 	DeriveMode      string `yaml:"derive_mode"`       // "result" or "coverage" (default: "coverage")
 	Slug            string `yaml:"slug"`              // URL slug for framework dir (default: ID)
 	Source          string `yaml:"source"`            // source attribution for per-requirement pages
+	SourceURL       string `yaml:"source_url"`        // live URL to the framework standard
 }
 
 // ApplyDefaults fills in zero-value fields with sensible defaults.

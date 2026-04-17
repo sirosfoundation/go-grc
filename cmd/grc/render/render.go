@@ -506,7 +506,11 @@ counts[e.Status]++
 }
 
 var b strings.Builder
-fmt.Fprintf(&b, "---\nsidebar_label: %s\ntitle: %s\n---\n\n# %s\n\n", fw.Name, fw.Name, fw.Name)
+sourceLink := fw.Name
+if fw.SourceURL != "" {
+sourceLink = fmt.Sprintf("[%s](%s)", fw.Name, fw.SourceURL)
+}
+fmt.Fprintf(&b, "---\nsidebar_label: %s\ntitle: %s\n---\n\n# %s\n\n", fw.Name, fw.Name, sourceLink)
 
 if isPublic {
 // Public: no dashboard, no status columns
@@ -622,6 +626,7 @@ func fwReqConfig(fw config.FrameworkConfig) reqConfig {
 if fw.DeriveMode == "result" {
 return reqConfig{
 source: fw.Source,
+sourceURL: fw.SourceURL,
 statusMap: map[string]string{
 "compliant":           "\u2705 Compliant",
 "partially_compliant": "\u26a0\ufe0f Partially Compliant",
@@ -633,6 +638,7 @@ statusMap: map[string]string{
 }
 return reqConfig{
 source:    fw.Source,
+sourceURL: fw.SourceURL,
 statusMap: coverageStatusMap(),
 }
 }
@@ -651,6 +657,7 @@ controls    []string
 
 type reqConfig struct {
 source    string
+sourceURL string
 statusMap map[string]string
 }
 
@@ -749,7 +756,11 @@ b.WriteString("\n")
 
 }
 
-fmt.Fprintf(&b, "---\n\n*Source: %s*\n", rc.source)
+if rc.sourceURL != "" {
+	fmt.Fprintf(&b, "---\n\n*Source: [%s](%s)*\n", rc.source, rc.sourceURL)
+} else {
+	fmt.Fprintf(&b, "---\n\n*Source: %s*\n", rc.source)
+}
 return b.String()
 }
 
