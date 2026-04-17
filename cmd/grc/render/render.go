@@ -165,23 +165,21 @@ return nil
 
 func renderControlIndex(cat *catalog.Catalog) string {
 total := len(cat.Controls)
-verified, toDo, platform, operator := 0, 0, 0, 0
+assessed, verified := 0, 0
 for _, ctrl := range cat.Controls {
-if catalog.EffectiveStatus(ctrl) == "verified" || catalog.EffectiveStatus(ctrl) == "validated" {
-verified++
-} else {
-toDo++
+eff := catalog.EffectiveStatus(ctrl)
+if eff != "to_do" {
+assessed++
 }
-if ctrl.Owner == "platform" {
-platform++
-} else if ctrl.Owner == "operator" {
-operator++
+if eff == "verified" || eff == "validated" {
+verified++
 }
 }
 var b strings.Builder
 b.WriteString("---\nsidebar_label: Overview\nsidebar_position: 1\ntitle: Controls Overview\n---\n\n# Controls Overview\n\n")
-fmt.Fprintf(&b, "%d controls: %d verified, %d to-do | %d %s, %d %s\n\n",
-total, verified, toDo, platform, ownerBadge("platform"), operator, ownerBadge("operator"))
+fmt.Fprintf(&b, "%d of %d controls assessed (%d verified). "+
+"Controls not yet referenced by any audit are omitted.\n\n",
+assessed, total, verified)
 
 for _, kind := range []string{"technical", "organizational"} {
 label := "Technical Controls (Platform-Provided)"
@@ -194,6 +192,9 @@ if groupKind(group) != kind {
 continue
 }
 for _, ctrl := range group.Controls {
+if catalog.EffectiveStatus(&ctrl) == "to_do" {
+continue
+}
 slug := idSlug(ctrl.ID)
 fmt.Fprintf(&b, "| [%s](%s/%s) | %s | %s | %s | %s |\n",
 ctrl.ID, kind, slug, ctrl.Title,
@@ -390,21 +391,36 @@ counts[e.Status]++
 var b strings.Builder
 fmt.Fprintf(&b, "---\nsidebar_label: %s\ntitle: %s\n---\n\n# %s\n\n", fw.Name, fw.Name, fw.Name)
 
+// Filter out unassessed entries for display
+assessed := 0
+for _, e := range fm.Entries {
+if !isUnassessedStatus(e.Status, fw.DeriveMode) {
+assessed++
+}
+}
+
 // Dashboard cards
-total := len(fm.Entries)
 b.WriteString(`<div class="dashboard-grid">` + "\n")
-fmt.Fprintf(&b, `<div class="dashboard-card"><div class="number">%d</div><div class="label">Total</div></div>`+"\n", total)
+fmt.Fprintf(&b, `<div class="dashboard-card"><div class="number">%d</div><div class="label">Assessed</div></div>`+"\n", assessed)
 for _, sv := range orderedStatuses(fw.DeriveMode) {
+if sv == "not_assessed" {
+continue
+}
 label := formatStatusLabel(sv)
 fmt.Fprintf(&b, `<div class="dashboard-card"><div class="number">%d</div><div class="label">%s</div></div>`+"\n", counts[sv], label)
 }
 b.WriteString("</div>\n\n")
+fmt.Fprintf(&b, "%d of %d requirements assessed. "+
+"Requirements not yet referenced by any audit are omitted.\n\n", assessed, len(fm.Entries))
 
 // Table
 if fw.DeriveMode == "result" {
 statusMap := resultStatusMap()
 b.WriteString("## Requirements\n\n| Ref | Status | Controls | Owner |\n|-----|--------|----------|-------|\n")
 for _, e := range fm.Entries {
+if isUnassessedStatus(e.Status, fw.DeriveMode) {
+continue
+}
 icon := statusMap[e.Status]
 if icon == "" {
 icon = "?"
@@ -425,6 +441,9 @@ fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", label, icon, controlLinks(e.Controls)
 } else {
 b.WriteString("## Coverage\n\n| Requirement | Title | Coverage | Controls | Owner |\n|-------------|-------|----------|----------|-------|\n")
 for _, e := range fm.Entries {
+if isUnassessedStatus(e.Status, fw.DeriveMode) {
+continue
+}
 title := ""
 if fwCat != nil {
 if ce := fwCat.ByID[e.Key]; ce != nil {
@@ -443,6 +462,11 @@ if mode == "result" {
 return []string{"compliant", "partially_compliant", "non_compliant", "not_applicable", "not_assessed"}
 }
 return []string{"full", "partial", "none", "not_assessed"}
+}
+
+// isUnassessedStatus returns true if the status means "not yet audited".
+func isUnassessedStatus(status, deriveMode string) bool {
+return status == "not_assessed"
 }
 
 func formatStatusLabel(s string) string {
@@ -600,15 +624,12 @@ return nil
 func renderFindingsIndex(findings []*audit.Finding) string {
 var b strings.Builder
 b.WriteString("---\nsidebar_label: Findings\nsidebar_position: 1\ntitle: Findings Overview\n---\n\n# Findings Overview\n\n")
-b.WriteString("Findings are tracked as GitHub issues. Each finding links to its tracking issue where analysis, comments, and implementation progress are managed. Resolved findings are removed from this page.\n\n")
-fmt.Fprintf(&b, `<div class="dashboard-grid">
-<div class="dashboard-card"><div class="number">%d</div><div class="label">Open Findings</div></div>
-</div>`+"\n\n", len(findings))
-b.WriteString("## Open Findings\n\n| Finding | Severity | Owner | Controls |\n|---------|----------|-------|----------|\n")
+fmt.Fprintf(&b, "%d open findings are tracked as GitHub issues.\n\n", len(findings))
+b.WriteString("| Finding | Severity | Owner | Controls |\n|---------|----------|-------|----------|\n")
 for _, f := range findings {
 icon := sevIcon(f.Severity)
-fmt.Fprintf(&b, "| %s \u2014 %s | %s %s | %s | %s |\n",
-findingLink(f), f.Title, icon, f.Severity, ownerBadge(f.Owner), controlLinks(f.Controls))
+fmt.Fprintf(&b, "| %s | %s %s | %s | %s |\n",
+findingLink(f), icon, f.Severity, ownerBadge(f.Owner), controlLinks(f.Controls))
 }
 return b.String()
 }
@@ -619,9 +640,13 @@ return b.String()
 
 func generateLanding(cfg *config.Config, cat *catalog.Catalog, activeFindings []*audit.Finding) error {
 total := len(cat.Controls)
-verified := 0
+assessed, verified := 0, 0
 for _, ctrl := range cat.Controls {
-if catalog.EffectiveStatus(ctrl) == "verified" || catalog.EffectiveStatus(ctrl) == "validated" {
+eff := catalog.EffectiveStatus(ctrl)
+if eff != "to_do" {
+assessed++
+}
+if eff == "verified" || eff == "validated" {
 verified++
 }
 }
@@ -637,18 +662,18 @@ var b strings.Builder
 fmt.Fprintf(&b, "---\nsidebar_position: 1\nslug: /\ntitle: %s\n---\n\n# %s\n\n", cfg.Project.Name, cfg.Project.Name)
 b.WriteString("Security controls, framework coverage, and compliance status.\n\n")
 fmt.Fprintf(&b, `<div class="dashboard-grid">
-<a href="controls" class="dashboard-card"><div class="number">%d</div><div class="label">Total Controls</div></a>
+<a href="controls" class="dashboard-card"><div class="number">%d</div><div class="label">Assessed Controls</div></a>
 <a href="controls" class="dashboard-card"><div class="number">%d</div><div class="label">Verified</div></a>
-<a href="controls" class="dashboard-card"><div class="number">%d</div><div class="label">To Do</div></a>
+<a href="controls" class="dashboard-card"><div class="number">%d</div><div class="label">In Progress</div></a>
 <a href="findings" class="dashboard-card"><div class="number">%d</div><div class="label">Open Findings</div></a>
-</div>`+"\n\n", total, verified, total-verified, len(activeFindings))
+</div>`+"\n\n", assessed, verified, assessed-verified, len(activeFindings))
 
 fmt.Fprintf(&b, `## Quick Links
 
-- **[Controls](controls)** %s Full catalog of %d security controls
+- **[Controls](controls)** %s %d of %d controls assessed
 - **[Frameworks](frameworks)** %s Coverage against %s
-- **[Findings](findings)** %s Summary of audit findings (tracked as GitHub issues)
-`, "\u2014", total, "\u2014", fwList, "\u2014")
+- **[Findings](findings)** %s %d open audit findings
+`, "\u2014", assessed, total, "\u2014", fwList, "\u2014", len(activeFindings))
 return writePage(filepath.Join(cfg.SiteDir, "index.md"), b.String())
 }
 
