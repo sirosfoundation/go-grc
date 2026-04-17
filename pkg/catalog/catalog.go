@@ -34,10 +34,10 @@ type Control struct {
 
 // Group is a named collection of controls.
 type Group struct {
-	ID         string    `yaml:"id"`
-	Title      string    `yaml:"title"`
-	Controls   []Control `yaml:"-"`
-	SourceDir  string    `yaml:"-"` // subdir the group was loaded from (e.g. "technical", "organizational")
+	ID        string    `yaml:"id"`
+	Title     string    `yaml:"title"`
+	Controls  []Control `yaml:"-"`
+	SourceDir string    `yaml:"-"` // subdir the group was loaded from (e.g. "technical", "organizational")
 }
 
 // GroupFile is the top-level structure of a catalog YAML file.

@@ -722,14 +722,20 @@ return s
 }
 
 func ownerBadge(s string) string {
-m := map[string]string{
+badges := map[string]string{
 "platform": `<span class="badge--platform">platform</span>`,
 "operator": `<span class="badge--operator">operator</span>`,
 }
-if v, ok := m[s]; ok {
-return v
+parts := strings.Split(s, ", ")
+var out []string
+for _, p := range parts {
+if v, ok := badges[p]; ok {
+out = append(out, v)
+} else {
+out = append(out, p)
 }
-return s
+}
+return strings.Join(out, " ")
 }
 
 func csfBadge(s string) string {

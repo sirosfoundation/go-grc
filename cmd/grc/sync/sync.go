@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -58,9 +59,9 @@ Phase 4: Collect evidence from closed issues and merged PRs.`,
 
 func run(root, repo string, dryRun bool) error {
 	cfg, err := config.New(root)
-if err != nil {
-return fmt.Errorf("loading config: %w", err)
-}
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
 	if repo == "" {
 		repo = cfg.Project.Repo
 	}
@@ -86,16 +87,18 @@ return fmt.Errorf("loading config: %w", err)
 	}
 
 	// Phase 1: Create tracking issues for untracked findings
-	severityLabels := map[string]string{
+	ensureLabels := map[string]string{
 		"severity:critical": "b60205",
 		"severity:high":     "d93f0b",
 		"severity:medium":   "fbca04",
 		"severity:low":      "0e8a16",
+		"owner:platform":    "1d76db",
+		"owner:operator":    "d876e3",
 		"compliance":        "0e8a16",
 	}
 
 	if !dryRun {
-		if err := client.EnsureLabels(ctx, repo, severityLabels); err != nil {
+		if err := client.EnsureLabels(ctx, repo, ensureLabels); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not ensure labels: %v\n", err)
 		}
 	}
@@ -111,10 +114,14 @@ return fmt.Errorf("loading config: %w", err)
 			}
 
 			labels := []string{"compliance", fmt.Sprintf("audit:%s", strings.ToLower(auditID))}
-			if _, ok := severityLabels["severity:"+f.Severity]; ok {
+			if _, ok := ensureLabels["severity:"+f.Severity]; ok {
 				labels = append(labels, "severity:"+f.Severity)
 			}
-
+			if f.Owner != "" {
+				for _, o := range strings.Split(f.Owner, ", ") {
+					labels = append(labels, "owner:"+o)
+				}
+			}
 			title := fmt.Sprintf("[%s] %s", f.ID, f.Title)
 			body := buildIssueBody(f, &file.Data.Audit)
 
@@ -182,13 +189,25 @@ return fmt.Errorf("loading config: %w", err)
 				}
 			}
 
-			// Phase 3: Sync tracking issue state
+			// Phase 3: Sync tracking issue state and owner
 			state, err := client.GetIssueState(ctx, tRepo, tNum)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "  Warning: %v\n", err)
 				continue
 			}
 			stats.checked++
+
+			// Sync owner from issue labels
+			if issueOwner := ownerFromLabels(state.Labels); issueOwner != "" && issueOwner != f.Owner {
+				if dryRun {
+					fmt.Printf("  DRY RUN: %s owner %s -> %s\n", f.ID, f.Owner, issueOwner)
+				} else {
+					fmt.Printf("  %s: owner %s -> %s\n", f.ID, f.Owner, issueOwner)
+					f.Owner = issueOwner
+					modified[file] = true
+					stats.updated++
+				}
+			}
 
 			oldStatus := f.Status
 			newStatus := ""
@@ -278,9 +297,9 @@ return fmt.Errorf("loading config: %w", err)
 
 func runLink(root, findingID, ref string, isPR bool) error {
 	cfg, err := config.New(root)
-if err != nil {
-return fmt.Errorf("loading config: %w", err)
-}
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
 	audits, err := audit.Load(cfg.AuditsDir)
 	if err != nil {
 		return fmt.Errorf("loading audits: %w", err)
@@ -366,6 +385,17 @@ func hasLabel(labels []string, target string) bool {
 		}
 	}
 	return false
+}
+
+func ownerFromLabels(labels []string) string {
+	var owners []string
+	for _, l := range labels {
+		if strings.HasPrefix(l, "owner:") {
+			owners = append(owners, strings.TrimPrefix(l, "owner:"))
+		}
+	}
+	sort.Strings(owners)
+	return strings.Join(owners, ", ")
 }
 
 func hasEvidenceRef(evidence []audit.Evidence, repo string, number int) bool {
