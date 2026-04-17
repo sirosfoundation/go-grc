@@ -239,6 +239,18 @@ func (c *Client) GetPRMergeInfo(ctx context.Context, repo string, number int) (b
 	return true, mergedAt, pr.GetMergeCommitSHA(), nil
 }
 
+// AddLabels adds labels to an existing issue.
+func (c *Client) AddLabels(ctx context.Context, repo string, number int, labels []string) error {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return err
+	}
+	_, _, err = c.client.Issues.AddLabelsToIssue(ctx, owner, name, number, labels)
+	if err != nil {
+		return fmt.Errorf("adding labels to %s#%d: %w", repo, number, err)
+	}
+	return nil
+}
 func mustAtoi(s string) int {
 	n, _ := strconv.Atoi(s)
 	return n

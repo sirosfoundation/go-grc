@@ -40,7 +40,7 @@ func run(root string) error {
 
 	total := 0
 	tracked, untracked := 0, 0
-	open, inProgress, resolved := 0, 0, 0
+	open, inProgress, resolved, accepted := 0, 0, 0, 0
 	withEvidence := 0
 
 	for _, ref := range audits.FindingsByID {
@@ -61,6 +61,8 @@ func run(root string) error {
 			if f.HasEvidence() {
 				withEvidence++
 			}
+		case "accepted":
+			accepted++
 		}
 	}
 
@@ -68,27 +70,28 @@ func run(root string) error {
 	fmt.Printf("  Open:          %d\n", open)
 	fmt.Printf("  In Progress:   %d\n", inProgress)
 	fmt.Printf("  Resolved:      %d (%d with evidence)\n", resolved, withEvidence)
+	fmt.Printf("  Accepted:      %d\n", accepted)
 	fmt.Printf("  Tracked:       %d\n", tracked)
 	fmt.Printf("  Untracked:     %d\n", untracked)
 	fmt.Println()
 
 	totalCtrls := len(cat.Controls)
-	verified, toDo, inProgress := 0, 0, 0
+	ctrlVerified, ctrlToDo, ctrlInProgress := 0, 0, 0
 	for _, ctrl := range cat.Controls {
 		switch ctrl.Status {
 		case "verified", "validated":
-			verified++
+			ctrlVerified++
 		case "in_progress":
-			inProgress++
+			ctrlInProgress++
 		default:
-			toDo++
+			ctrlToDo++
 		}
 	}
 
 	fmt.Printf("Controls: %d total\n", totalCtrls)
-	fmt.Printf("  Verified:      %d\n", verified)
-	fmt.Printf("  In Progress:   %d\n", inProgress)
-	fmt.Printf("  To Do:         %d\n", toDo)
+	fmt.Printf("  Verified:      %d\n", ctrlVerified)
+	fmt.Printf("  In Progress:   %d\n", ctrlInProgress)
+	fmt.Printf("  To Do:         %d\n", ctrlToDo)
 	fmt.Println()
 
 	fmt.Printf("%-20s %5s %5s %5s %5s\n", "Audit", "Total", "Open", "InPrg", "Done")
@@ -102,7 +105,7 @@ func run(root string) error {
 				o++
 			case "in_progress":
 				ip++
-			case "resolved":
+			case "resolved", "accepted":
 				r++
 			}
 		}

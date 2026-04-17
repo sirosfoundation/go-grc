@@ -94,6 +94,7 @@ func run(root, repo string, dryRun bool) error {
 		"severity:low":      "0e8a16",
 		"owner:platform":    "1d76db",
 		"owner:operator":    "d876e3",
+		"status:accepted":   "cfd3d7",
 		"compliance":        "0e8a16",
 	}
 
@@ -109,7 +110,7 @@ func run(root, repo string, dryRun bool) error {
 		created := 0
 		for i := range file.Data.Findings {
 			f := &file.Data.Findings[i]
-			if f.Status == "resolved" || f.TrackingIssue != nil {
+			if f.IsTerminal() || f.TrackingIssue != nil {
 				continue
 			}
 
@@ -197,8 +198,9 @@ func run(root, repo string, dryRun bool) error {
 			}
 			stats.checked++
 
-			// Sync owner from issue labels
-			if issueOwner := ownerFromLabels(state.Labels); issueOwner != "" && issueOwner != f.Owner {
+			// Sync owner: labels → YAML (authoritative)
+			issueOwner := ownerFromLabels(state.Labels)
+			if issueOwner != "" && issueOwner != f.Owner {
 				if dryRun {
 					fmt.Printf("  DRY RUN: %s owner %s -> %s\n", f.ID, f.Owner, issueOwner)
 				} else {
@@ -207,12 +209,39 @@ func run(root, repo string, dryRun bool) error {
 					modified[file] = true
 					stats.updated++
 				}
+			} else if issueOwner == "" && f.Owner != "" {
+				// No owner labels on issue but YAML has owner → apply labels
+				var labels []string
+				for _, o := range strings.Split(f.Owner, ", ") {
+					labels = append(labels, "owner:"+o)
+				}
+				if !dryRun {
+					if err := client.AddLabels(ctx, tRepo, tNum, labels); err != nil {
+						fmt.Fprintf(os.Stderr, "  Warning: %s: could not sync owner labels: %v\n", f.ID, err)
+					} else {
+						fmt.Printf("  %s: synced owner labels %v to issue\n", f.ID, labels)
+					}
+				} else {
+					fmt.Printf("  DRY RUN: %s would add owner labels %v\n", f.ID, labels)
+				}
 			}
 
 			oldStatus := f.Status
 			newStatus := ""
-			if state.State == "CLOSED" && state.StateReason != "NOT_PLANNED" && f.Status != "resolved" {
+			if state.State == "CLOSED" && state.StateReason == "NOT_PLANNED" && f.Status != "accepted" {
+				newStatus = "accepted"
+			} else if state.State == "CLOSED" && state.StateReason != "NOT_PLANNED" && f.Status != "resolved" {
 				newStatus = "resolved"
+			} else if state.State == "OPEN" && f.Status == "resolved" {
+				// Reopened issue → revert resolved finding
+				if hasLabel(state.Labels, "in-progress") {
+					newStatus = "in_progress"
+				} else {
+					newStatus = "open"
+				}
+			} else if state.State == "OPEN" && f.Status == "accepted" {
+				// Reopened after risk acceptance → revert
+				newStatus = "open"
 			} else if state.State == "OPEN" && hasLabel(state.Labels, "in-progress") && f.Status == "open" {
 				newStatus = "in_progress"
 			}
@@ -238,8 +267,11 @@ func run(root, repo string, dryRun bool) error {
 					fmt.Printf("  DRY RUN: %s %s -> %s\n", f.ID, oldStatus, newStatus)
 				} else {
 					f.Status = newStatus
-					if newStatus == "resolved" {
+					if newStatus == "resolved" || newStatus == "accepted" {
 						f.ResolvedDate = time.Now().UTC().Format("2006-01-02")
+					}
+					if newStatus == "open" || newStatus == "in_progress" {
+						f.ResolvedDate = "" // clear on reopen
 					}
 					modified[file] = true
 					stats.updated++

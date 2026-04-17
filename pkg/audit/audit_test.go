@@ -194,9 +194,34 @@ func TestFinding_StatusHelpers(t *testing.T) {
 	if f.IsResolved() {
 		t.Error("open finding should not be resolved")
 	}
+	if f.IsTerminal() {
+		t.Error("open finding should not be terminal")
+	}
+	if f.IsActive() {
+		t.Error("open finding should not be active")
+	}
+
+	f.Status = "in_progress"
+	if f.IsTerminal() {
+		t.Error("in_progress finding should not be terminal")
+	}
+	if !f.IsActive() {
+		t.Error("in_progress finding should be active")
+	}
 
 	f.Status = "resolved"
 	if !f.IsResolved() {
 		t.Error("resolved finding should be resolved")
+	}
+	if !f.IsTerminal() {
+		t.Error("resolved finding should be terminal")
+	}
+
+	f.Status = "accepted"
+	if !f.IsTerminal() {
+		t.Error("accepted finding should be terminal")
+	}
+	if f.IsResolved() {
+		t.Error("accepted finding should not be resolved (IsResolved is for status==resolved only)")
 	}
 }
