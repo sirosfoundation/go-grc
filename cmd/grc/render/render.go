@@ -967,10 +967,10 @@ if kind == "" {
 kind = "technical"
 }
 if isPublic {
-fmt.Fprintf(&b, "| [%s](controls/%s/%s) | %s | %s |\n",
+fmt.Fprintf(&b, "| [%s](/controls/%s/%s) | %s | %s |\n",
 ctrl.ID, kind, slug, ctrl.Title, ownerBadge(ctrl.Owner))
 } else {
-fmt.Fprintf(&b, "| [%s](controls/%s/%s) | %s | %s | %s |\n",
+fmt.Fprintf(&b, "| [%s](/controls/%s/%s) | %s | %s | %s |\n",
 ctrl.ID, kind, slug, ctrl.Title,
 statusBadge(catalog.EffectiveStatus(&ctrl)), ownerBadge(ctrl.Owner))
 }
