@@ -983,82 +983,162 @@ return writePage(filepath.Join(cfg.SiteDir, "csf.md"), b.String())
 
 
 func renderComplianceOverview(cfg *config.Config, cat *catalog.Catalog) string {
-	csfCounts := map[string]int{}
-	for _, group := range cat.Groups {
-		for _, ctrl := range group.Controls {
-			if ctrl.CSFFunction != "" {
-				csfCounts[ctrl.CSFFunction]++
-			}
-		}
-	}
+csfCounts := map[string]int{}
+for _, group := range cat.Groups {
+for _, ctrl := range group.Controls {
+if ctrl.CSFFunction != "" {
+csfCounts[ctrl.CSFFunction]++
+}
+}
+}
 
-	fence := string([]byte{96, 96, 96})
-	var b strings.Builder
-	b.WriteString("\n## How It Fits Together\n\n")
-	b.WriteString("Compliance frameworks define **requirements** that are mapped to\n")
-	b.WriteString("platform **controls**.  Each control is categorised under a\n")
-	b.WriteString("[NIST CSF 2.0](/csf) function so that coverage can be reviewed\n")
-	b.WriteString("at every level of abstraction.\n\n")
-	fmt.Fprintf(&b, "%smermaid\n", fence)
-	b.WriteString("flowchart LR\n")
+total := len(cat.Controls)
+techCount, orgCount := 0, 0
+for _, group := range cat.Groups {
+kind := groupKind(group)
+if kind == "technical" {
+techCount += len(group.Controls)
+} else {
+orgCount += len(group.Controls)
+}
+}
 
-	b.WriteString("  subgraph Frameworks\n")
-	b.WriteString("    direction TB\n")
-	for _, fw := range cfg.Frameworks {
-		fwID := strings.ReplaceAll(fw.ID, "-", "_")
-		fmt.Fprintf(&b, "    FW_%s[\"%s\"]\n", fwID, fw.Name)
-	}
-	b.WriteString("  end\n\n")
+var b strings.Builder
+b.WriteString("\n## How It Fits Together\n\n")
+b.WriteString("Compliance frameworks define **requirements** that are mapped to\n")
+b.WriteString("platform **controls**.  Each control is categorised under a\n")
+b.WriteString("[NIST CSF 2.0](/csf) function so that coverage can be reviewed\n")
+b.WriteString("at every level of abstraction.\n\n")
 
-	total := len(cat.Controls)
-	techCount, orgCount := 0, 0
-	for _, group := range cat.Groups {
-		kind := groupKind(group)
-		if kind == "technical" {
-			techCount += len(group.Controls)
-		} else {
-			orgCount += len(group.Controls)
-		}
-	}
-	b.WriteString("  subgraph Controls\n")
-	b.WriteString("    direction TB\n")
-	fmt.Fprintf(&b, "    TECH[\"%d Technical\"]\n", techCount)
-	fmt.Fprintf(&b, "    ORG[\"%d Organizational\"]\n", orgCount)
-	fmt.Fprintf(&b, "    ALL{{\"%d Controls\"}}\n", total)
-	b.WriteString("    TECH --- ALL\n")
-	b.WriteString("    ORG --- ALL\n")
-	b.WriteString("  end\n\n")
+// ---- inline SVG diagram ----
+// Layout constants
+const (
+svgW    = 960
+colFW   = 30   // x of Frameworks column
+colCtrl = 370  // x of Controls column
+colCSF  = 680  // x of CSF column
+boxW    = 240  // box width
+boxH    = 32   // box height
+gap     = 6    // vertical gap between boxes
+headerH = 28   // section header height
+radius  = 6    // rounded corner radius
+)
 
-	b.WriteString("  subgraph CSF[\"CSF 2.0 Functions\"]\n")
-	b.WriteString("    direction TB\n")
-	for _, fn := range csfFunctions {
-		upper := strings.ToUpper(fn.ID)
-		count := csfCounts[fn.ID]
-		fmt.Fprintf(&b, "    %s[\"%s \u00b7 %d\"]\n", upper, fn.Name, count)
-	}
-	b.WriteString("  end\n\n")
+// Compute heights
+fwCount := len(cfg.Frameworks)
+csfCount := len(csfFunctions)
+ctrlRows := 3 // Technical, Organizational, total
 
-	b.WriteString("  Frameworks -- requirements --> Controls\n")
-	b.WriteString("  Controls -- categorised --> CSF\n\n")
+maxRows := fwCount
+if csfCount > maxRows {
+maxRows = csfCount
+}
+if ctrlRows > maxRows {
+maxRows = ctrlRows
+}
+svgH := 60 + headerH + maxRows*(boxH+gap) + 20
 
-	b.WriteString("  style Frameworks fill:#f0f4ff,stroke:#6366f1\n")
-	b.WriteString("  style Controls fill:#f0fdf4,stroke:#22c55e\n")
-	b.WriteString("  style CSF fill:#fffbeb,stroke:#eab308\n")
-	for _, fn := range csfFunctions {
-		upper := strings.ToUpper(fn.ID)
-		fmt.Fprintf(&b, "  style %s fill:%s,color:#fff,stroke:none\n", upper, fn.Color)
-	}
-	fmt.Fprintf(&b, "%s\n\n", fence)
-	b.WriteString("## Platform vs Operator\n\n")
-	b.WriteString("Each control is labelled **platform** or **operator**:\n\n")
-	b.WriteString("- **Platform** controls apply to the open-source SIROS\u00a0ID codebase itself \u2014\n")
-	b.WriteString("  they are satisfied by the software and verified through code, tests, and audits.\n")
-	b.WriteString("- **Operator** controls apply to the organisation running the platform \u2014\n")
-	b.WriteString("  policies, processes, and infrastructure that each deployment must provide independently.\n\n")
-	b.WriteString("This separation reflects the fact that SIROS\u00a0ID is designed to be operated\n")
-	b.WriteString("not only by the SIROS Foundation but by any organisation independently.\n\n")
+fmt.Fprintf(&b, "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 %d %d\" style=\"width:100%%;max-width:%dpx;font-family:system-ui,sans-serif\">\n", svgW, svgH, svgW)
+b.WriteString("<defs>\n")
+b.WriteString("  <marker id=\"ah\" markerWidth=\"10\" markerHeight=\"7\" refX=\"10\" refY=\"3.5\" orient=\"auto\"><polygon points=\"0 0, 10 3.5, 0 7\" fill=\"#94a3b8\"/></marker>\n")
+b.WriteString("</defs>\n")
 
-	return b.String()
+// Background panels
+panelTop := 10
+panelH := svgH - 20
+fmt.Fprintf(&b, "<rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\" rx=\"10\" fill=\"#f0f4ff\" stroke=\"#6366f1\" stroke-width=\"1.5\"/>\n", colFW-10, panelTop, boxW+20, panelH)
+fmt.Fprintf(&b, "<rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\" rx=\"10\" fill=\"#f0fdf4\" stroke=\"#22c55e\" stroke-width=\"1.5\"/>\n", colCtrl-10, panelTop, boxW+20, panelH)
+fmt.Fprintf(&b, "<rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\" rx=\"10\" fill=\"#fffbeb\" stroke=\"#eab308\" stroke-width=\"1.5\"/>\n", colCSF-10, panelTop, boxW+20, panelH)
+
+// Section headers
+headerY := panelTop + 22
+fmt.Fprintf(&b, "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-weight=\"700\" font-size=\"14\" fill=\"#6366f1\">Frameworks</text>\n", colFW+boxW/2, headerY)
+fmt.Fprintf(&b, "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-weight=\"700\" font-size=\"14\" fill=\"#22c55e\">Controls</text>\n", colCtrl+boxW/2, headerY)
+fmt.Fprintf(&b, "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-weight=\"700\" font-size=\"14\" fill=\"#eab308\">CSF 2.0 Functions</text>\n", colCSF+boxW/2, headerY)
+
+startY := panelTop + headerH + 14
+
+// Framework boxes
+fwMidYs := make([]int, fwCount)
+for i, fw := range cfg.Frameworks {
+y := startY + i*(boxH+gap)
+fwMidYs[i] = y + boxH/2
+fmt.Fprintf(&b, "<rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\" rx=\"%d\" fill=\"#fff\" stroke=\"#c7d2fe\" stroke-width=\"1\"/>\n", colFW, y, boxW, boxH, radius)
+fmt.Fprintf(&b, "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-size=\"12\" fill=\"#312e81\">%s</text>\n", colFW+boxW/2, y+boxH/2+4, fw.Name)
+}
+
+// Control boxes
+ctrlLabels := []struct {
+label string
+fill  string
+stroke string
+}{
+{fmt.Sprintf("%d Technical", techCount), "#dcfce7", "#22c55e"},
+{fmt.Sprintf("%d Organizational", orgCount), "#dcfce7", "#22c55e"},
+{fmt.Sprintf("%d Controls", total), "#bbf7d0", "#16a34a"},
+}
+ctrlMidY := 0
+for i, cl := range ctrlLabels {
+y := startY + i*(boxH+gap)
+ry := radius
+if i == 2 {
+ry = boxH / 2 // pill shape for total
+}
+fmt.Fprintf(&b, "<rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\" rx=\"%d\" fill=\"%s\" stroke=\"%s\" stroke-width=\"1\"/>\n", colCtrl, y, boxW, boxH, ry, cl.fill, cl.stroke)
+fw := "600"
+if i == 2 {
+fw = "700"
+}
+fmt.Fprintf(&b, "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-size=\"13\" font-weight=\"%s\" fill=\"#14532d\">%s</text>\n", colCtrl+boxW/2, y+boxH/2+4, fw, cl.label)
+if i == 2 {
+ctrlMidY = y + boxH/2
+}
+}
+
+// CSF function boxes
+csfMidYs := make([]int, csfCount)
+for i, fn := range csfFunctions {
+y := startY + i*(boxH+gap)
+csfMidYs[i] = y + boxH/2
+count := csfCounts[fn.ID]
+fmt.Fprintf(&b, "<rect x=\"%d\" y=\"%d\" width=\"%d\" height=\"%d\" rx=\"%d\" fill=\"%s\"/>\n", colCSF, y, boxW, boxH, radius, fn.Color)
+fmt.Fprintf(&b, "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-size=\"12\" font-weight=\"600\" fill=\"#fff\">%s \u00b7 %d</text>\n", colCSF+boxW/2, y+boxH/2+4, fn.Name, count)
+}
+
+// Arrows: each framework -> controls center
+arrowXStart := colFW + boxW + 4
+arrowXEnd := colCtrl - 4
+for _, my := range fwMidYs {
+fmt.Fprintf(&b, "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" stroke=\"#94a3b8\" stroke-width=\"1.5\" marker-end=\"url(#ah)\"/>\n", arrowXStart, my, arrowXEnd, ctrlMidY)
+}
+
+// Arrow label
+labelX := (arrowXStart + arrowXEnd) / 2
+labelY := startY - 2
+fmt.Fprintf(&b, "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-size=\"10\" fill=\"#64748b\" font-style=\"italic\">requirements</text>\n", labelX, labelY)
+
+// Arrows: controls center -> each CSF
+arrowXStart2 := colCtrl + boxW + 4
+arrowXEnd2 := colCSF - 4
+for _, my := range csfMidYs {
+fmt.Fprintf(&b, "<line x1=\"%d\" y1=\"%d\" x2=\"%d\" y2=\"%d\" stroke=\"#94a3b8\" stroke-width=\"1.5\" marker-end=\"url(#ah)\"/>\n", arrowXStart2, ctrlMidY, arrowXEnd2, my)
+}
+
+labelX2 := (arrowXStart2 + arrowXEnd2) / 2
+fmt.Fprintf(&b, "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-size=\"10\" fill=\"#64748b\" font-style=\"italic\">categorised</text>\n", labelX2, labelY)
+
+b.WriteString("</svg>\n\n")
+
+b.WriteString("## Platform vs Operator\n\n")
+b.WriteString("Each control is labelled **platform** or **operator**:\n\n")
+b.WriteString("- **Platform** controls apply to the open-source SIROS\u00a0ID codebase itself \u2014\n")
+b.WriteString("  they are satisfied by the software and verified through code, tests, and audits.\n")
+b.WriteString("- **Operator** controls apply to the organisation running the platform \u2014\n")
+b.WriteString("  policies, processes, and infrastructure that each deployment must provide independently.\n\n")
+b.WriteString("This separation reflects the fact that SIROS\u00a0ID is designed to be operated\n")
+b.WriteString("not only by the SIROS Foundation but by any organisation independently.\n\n")
+
+return b.String()
 }
 // ---------------------------------------------------------------------------
 
