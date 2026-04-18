@@ -1014,9 +1014,9 @@ b.WriteString("at every level of abstraction.\n\n")
 // Layout constants
 const (
 svgW    = 960
-colFW   = 30   // x of Frameworks column
-colCtrl = 370  // x of Controls column
-colCSF  = 680  // x of CSF column
+colFW   = 60   // x of Frameworks column
+colCtrl = 360  // x of Controls column
+colCSF  = 660  // x of CSF column
 boxW    = 240  // box width
 boxH    = 32   // box height
 gap     = 6    // vertical gap between boxes
