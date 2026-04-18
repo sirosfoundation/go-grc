@@ -906,15 +906,18 @@ Color string
 }
 
 func generateCSFPage(cfg *config.Config, cat *catalog.Catalog, isPublic bool) error {
-// Group controls by CSF function
+// Group controls by CSF function; track which directory each control lives in
 byFunc := map[string][]catalog.Control{}
+ctrlKind := map[string]string{} // control ID -> "technical" or "organizational"
 for _, group := range cat.Groups {
+kind := groupKind(group)
 for _, ctrl := range group.Controls {
 if ctrl.CSFFunction != "" {
 if !isPublic && catalog.EffectiveStatus(&ctrl) == "to_do" {
 continue
 }
 byFunc[ctrl.CSFFunction] = append(byFunc[ctrl.CSFFunction], ctrl)
+ctrlKind[ctrl.ID] = kind
 }
 }
 }
@@ -959,9 +962,9 @@ b.WriteString("| Control | Title | Status | Owner |\n|---------|-------|--------
 }
 for _, ctrl := range ctrls {
 slug := idSlug(ctrl.ID)
-kind := "technical"
-if ctrl.Category == "policy" || ctrl.Category == "process" || ctrl.Category == "physical" {
-kind = "organizational"
+kind := ctrlKind[ctrl.ID]
+if kind == "" {
+kind = "technical"
 }
 if isPublic {
 fmt.Fprintf(&b, "| [%s](controls/%s/%s) | %s | %s |\n",
