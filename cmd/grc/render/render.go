@@ -498,10 +498,18 @@ continue
 parts := strings.SplitN(r, "/", 2)
 if len(parts) >= 2 {
 repo := resolveRepo(parts[0], cfg)
-if repo != "" {
-fmt.Fprintf(&b, "- [`%s`](https://github.com/%s/tree/main/%s)\n", r, repo, parts[1])
+fullRepo := repo
+if fullRepo == "" {
+fullRepo = projectOrg + "/" + parts[0]
+}
+refPath := parts[1]
+// issues/ and pull/ are top-level GitHub routes, not tree paths
+if strings.HasPrefix(refPath, "issues/") || strings.HasPrefix(refPath, "pull/") {
+fmt.Fprintf(&b, "- [`%s`](https://github.com/%s/%s)\n", r, fullRepo, refPath)
+} else if refPath == "" || strings.HasSuffix(refPath, "/") || !strings.Contains(filepath.Base(refPath), ".") {
+fmt.Fprintf(&b, "- [`%s`](https://github.com/%s/tree/main/%s)\n", r, fullRepo, refPath)
 } else {
-fmt.Fprintf(&b, "- [`%s`](https://github.com/%s/%s/tree/main/%s)\n", r, projectOrg, parts[0], parts[1])
+fmt.Fprintf(&b, "- [`%s`](https://github.com/%s/blob/main/%s)\n", r, fullRepo, refPath)
 }
 } else {
 fmt.Fprintf(&b, "- `%s`\n", r)
