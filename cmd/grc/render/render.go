@@ -978,6 +978,85 @@ b.WriteString("\n")
 return writePage(filepath.Join(cfg.SiteDir, "csf.md"), b.String())
 }
 
+
+func renderComplianceOverview(cfg *config.Config, cat *catalog.Catalog) string {
+	csfCounts := map[string]int{}
+	for _, group := range cat.Groups {
+		for _, ctrl := range group.Controls {
+			if ctrl.CSFFunction != "" {
+				csfCounts[ctrl.CSFFunction]++
+			}
+		}
+	}
+
+	fence := string([]byte{96, 96, 96})
+	var b strings.Builder
+	b.WriteString("\n## How It Fits Together\n\n")
+	b.WriteString("Compliance frameworks define **requirements** that are mapped to\n")
+	b.WriteString("platform **controls**.  Each control is categorised under a\n")
+	b.WriteString("[NIST CSF 2.0](/csf) function so that coverage can be reviewed\n")
+	b.WriteString("at every level of abstraction.\n\n")
+	fmt.Fprintf(&b, "%smermaid\n", fence)
+	b.WriteString("flowchart LR\n")
+
+	b.WriteString("  subgraph Frameworks\n")
+	b.WriteString("    direction TB\n")
+	for _, fw := range cfg.Frameworks {
+		fwID := strings.ReplaceAll(fw.ID, "-", "_")
+		fmt.Fprintf(&b, "    FW_%s[\"%s\"]\n", fwID, fw.Name)
+	}
+	b.WriteString("  end\n\n")
+
+	total := len(cat.Controls)
+	techCount, orgCount := 0, 0
+	for _, group := range cat.Groups {
+		kind := groupKind(group)
+		if kind == "technical" {
+			techCount += len(group.Controls)
+		} else {
+			orgCount += len(group.Controls)
+		}
+	}
+	b.WriteString("  subgraph Controls\n")
+	b.WriteString("    direction TB\n")
+	fmt.Fprintf(&b, "    TECH[\"%d Technical\"]\n", techCount)
+	fmt.Fprintf(&b, "    ORG[\"%d Organizational\"]\n", orgCount)
+	fmt.Fprintf(&b, "    ALL{{\"%d Controls\"}}\n", total)
+	b.WriteString("    TECH --- ALL\n")
+	b.WriteString("    ORG --- ALL\n")
+	b.WriteString("  end\n\n")
+
+	b.WriteString("  subgraph CSF[\"CSF 2.0 Functions\"]\n")
+	b.WriteString("    direction TB\n")
+	for _, fn := range csfFunctions {
+		upper := strings.ToUpper(fn.ID)
+		count := csfCounts[fn.ID]
+		fmt.Fprintf(&b, "    %s[\"%s \u00b7 %d\"]\n", upper, fn.Name, count)
+	}
+	b.WriteString("  end\n\n")
+
+	b.WriteString("  Frameworks -- requirements --> Controls\n")
+	b.WriteString("  Controls -- categorised --> CSF\n\n")
+
+	b.WriteString("  style Frameworks fill:#f0f4ff,stroke:#6366f1\n")
+	b.WriteString("  style Controls fill:#f0fdf4,stroke:#22c55e\n")
+	b.WriteString("  style CSF fill:#fffbeb,stroke:#eab308\n")
+	for _, fn := range csfFunctions {
+		upper := strings.ToUpper(fn.ID)
+		fmt.Fprintf(&b, "  style %s fill:%s,color:#fff,stroke:none\n", upper, fn.Color)
+	}
+	fmt.Fprintf(&b, "%s\n\n", fence)
+	b.WriteString("## Platform vs Operator\n\n")
+	b.WriteString("Each control is labelled **platform** or **operator**:\n\n")
+	b.WriteString("- **Platform** controls apply to the open-source SIROS\u00a0ID codebase itself \u2014\n")
+	b.WriteString("  they are satisfied by the software and verified through code, tests, and audits.\n")
+	b.WriteString("- **Operator** controls apply to the organisation running the platform \u2014\n")
+	b.WriteString("  policies, processes, and infrastructure that each deployment must provide independently.\n\n")
+	b.WriteString("This separation reflects the fact that SIROS\u00a0ID is designed to be operated\n")
+	b.WriteString("not only by the SIROS Foundation but by any organisation independently.\n\n")
+
+	return b.String()
+}
 // ---------------------------------------------------------------------------
 
 func generateLanding(cfg *config.Config, cat *catalog.Catalog, activeFindings []*audit.Finding, isPublic bool) error {
@@ -1000,6 +1079,8 @@ fmt.Fprintf(&b, `## Quick Links
 - **[Frameworks](frameworks)** %s Mappings against %s
 - **[CSF Functions](csf)** %s NIST Cybersecurity Framework function overview
 `, "\u2014", total, "\u2014", fwList, "\u2014")
+
+b.WriteString(renderComplianceOverview(cfg, cat))
 } else {
 assessed, verified := 0, 0
 for _, ctrl := range cat.Controls {
@@ -1025,6 +1106,8 @@ fmt.Fprintf(&b, `## Quick Links
 - **[CSF Functions](csf)** %s NIST Cybersecurity Framework function overview
 - **[Findings](findings)** %s %d open audit findings
 `, "\u2014", assessed, total, "\u2014", fwList, "\u2014", "\u2014", len(activeFindings))
+
+b.WriteString(renderComplianceOverview(cfg, cat))
 }
 return writePage(filepath.Join(cfg.SiteDir, "index.md"), b.String())
 }
