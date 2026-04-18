@@ -123,28 +123,72 @@ frameworkURLs[fw.ID] = urls
 // Build framework→control reverse index
 frameworkRefs := buildFrameworkRefs(maps)
 
-// Clean generated dirs
-for _, subdir := range []string{"controls", "frameworks", "findings"} {
-os.RemoveAll(filepath.Join(cfg.SiteDir, subdir))
+// Render into a staging directory, then atomically swap each subdir
+// so the live site is never missing pages during regeneration.
+stagingDir, err := os.MkdirTemp(filepath.Dir(cfg.SiteDir), ".grc-staging-*")
+if err != nil {
+return fmt.Errorf("creating staging dir: %w", err)
 }
+defer os.RemoveAll(stagingDir) // clean up on error
+
+origSiteDir := cfg.SiteDir
+cfg.SiteDir = stagingDir
 
 // Controls
 if err := generateControls(cfg, cat, audits, activeFindings, frameworkRefs, isPublic); err != nil {
+cfg.SiteDir = origSiteDir
 return err
 }
 // Frameworks
 if err := generateFrameworks(cfg, cat, maps, audits, activeFindings, fwCats, isPublic); err != nil {
+cfg.SiteDir = origSiteDir
 return err
 }
 // Findings
 if !isPublic {
 if err := generateFindings(cfg, audits, activeFindings); err != nil {
+cfg.SiteDir = origSiteDir
 return err
 }
 }
 // Landing page
 if err := generateLanding(cfg, cat, activeFindings, isPublic); err != nil {
+cfg.SiteDir = origSiteDir
 return err
+}
+
+cfg.SiteDir = origSiteDir
+
+// Atomically swap each subdirectory
+subdirs := []string{"controls", "frameworks"}
+if !isPublic {
+subdirs = append(subdirs, "findings")
+}
+for _, subdir := range subdirs {
+dst := filepath.Join(cfg.SiteDir, subdir)
+src := filepath.Join(stagingDir, subdir)
+if _, err := os.Stat(src); err != nil {
+continue
+}
+old := dst + ".old"
+os.RemoveAll(old)
+os.Rename(dst, old)     // move current out of the way
+if err := os.Rename(src, dst); err != nil {
+os.Rename(old, dst) // rollback on failure
+return fmt.Errorf("swapping %s: %w", subdir, err)
+}
+os.RemoveAll(old) // clean up previous version
+}
+// Swap index.md
+srcIndex := filepath.Join(stagingDir, "index.md")
+dstIndex := filepath.Join(cfg.SiteDir, "index.md")
+if _, err := os.Stat(srcIndex); err == nil {
+os.Rename(dstIndex, dstIndex+".old")
+if err := os.Rename(srcIndex, dstIndex); err != nil {
+os.Rename(dstIndex+".old", dstIndex)
+return fmt.Errorf("swapping index.md: %w", err)
+}
+os.RemoveAll(dstIndex + ".old")
 }
 
 // Generate Docusaurus sidebars.ts and update config based on profile
