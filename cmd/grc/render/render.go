@@ -687,7 +687,7 @@ var b strings.Builder
 fmt.Fprintf(&b, "---\nsidebar_label: \"%s\"\ntitle: \"%s \u2014 %s\"\n---\n\n", reqID, reqID, title)
 fmt.Fprintf(&b, "# %s \u2014 %s\n\n", reqID, title)
 
-if description != "" {
+if description != "" && strings.TrimRight(description, ".") != strings.TrimRight(title, ".") {
 fmt.Fprintf(&b, "> %s\n\n", description)
 }
 
