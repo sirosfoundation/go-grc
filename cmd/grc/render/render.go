@@ -667,7 +667,11 @@ counts[e.Status]++
 var b strings.Builder
 sourceLink := fw.Name
 if fw.SourceURL != "" {
-sourceLink = fmt.Sprintf("[%s](%s)", fw.Name, fw.SourceURL)
+srcURL := fw.SourceURL
+if strings.HasPrefix(srcURL, "/") && !strings.HasSuffix(srcURL, "/") {
+srcURL = "pathname://" + srcURL
+}
+sourceLink = fmt.Sprintf("[%s](%s)", fw.Name, srcURL)
 }
 fmt.Fprintf(&b, "---\nsidebar_label: %s\ntitle: %s\n---\n\n# %s\n\n", fw.Name, fw.Name, sourceLink)
 
@@ -916,7 +920,11 @@ b.WriteString("\n")
 }
 
 if rc.sourceURL != "" {
-	fmt.Fprintf(&b, "---\n\n*Source: [%s](%s)*\n", rc.source, rc.sourceURL)
+	srcURL := rc.sourceURL
+if strings.HasPrefix(srcURL, "/") && !strings.HasSuffix(srcURL, "/") {
+srcURL = "pathname://" + srcURL
+}
+fmt.Fprintf(&b, "---\n\n*Source: [%s](%s)*\n", rc.source, srcURL)
 } else {
 	fmt.Fprintf(&b, "---\n\n*Source: %s*\n", rc.source)
 }
