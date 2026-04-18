@@ -198,6 +198,13 @@ os.RemoveAll(dstFile + ".old")
 }
 }
 
+// Strip findings/severity from architecture docs in public profile
+if isPublic {
+if err := sanitizeArchitectureDocs(cfg.SiteDir); err != nil {
+return err
+}
+}
+
 // Generate Docusaurus sidebars.ts and update config based on profile
 if err := generateDocusaurusConfig(cfg, isPublic); err != nil {
 return err
@@ -205,6 +212,88 @@ return err
 
 fmt.Println("Site generated.")
 return nil
+}
+
+// ---------------------------------------------------------------------------
+// Architecture doc sanitization (public profile)
+// ---------------------------------------------------------------------------
+
+func sanitizeArchitectureDocs(siteDir string) error {
+	archDir := filepath.Join(siteDir, "architecture")
+	entries, err := os.ReadDir(archDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	// Patterns to strip from individual pages: lines containing Finding or Severity rows
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		path := filepath.Join(archDir, e.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		lines := strings.Split(string(data), "\n")
+		var out []string
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			// Strip Finding and Severity rows from metadata tables
+			if strings.HasPrefix(trimmed, "| **Finding**") ||
+				strings.HasPrefix(trimmed, "| **Severity**") {
+				continue
+			}
+			out = append(out, line)
+		}
+		// For index.md, strip the Finding column from the documents table
+		if e.Name() == "index.md" {
+			out = stripTableColumn(out, "Finding")
+		}
+		if err := os.WriteFile(path, []byte(strings.Join(out, "\n")), 0644); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// stripTableColumn removes a column by header name from markdown tables.
+func stripTableColumn(lines []string, colName string) []string {
+	var result []string
+	var colIdx int
+	var inTable bool
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "|") {
+			inTable = false
+			result = append(result, line)
+			continue
+		}
+		parts := strings.Split(trimmed, "|")
+		// parts[0] and parts[len-1] are empty due to leading/trailing |
+		if !inTable {
+			// Header row — find the column
+			colIdx = -1
+			for i, p := range parts {
+				if strings.TrimSpace(p) == colName {
+					colIdx = i
+					break
+				}
+			}
+			if colIdx < 0 {
+				result = append(result, line)
+				continue
+			}
+			inTable = true
+		}
+		if colIdx >= 0 && colIdx < len(parts) {
+			parts = append(parts[:colIdx], parts[colIdx+1:]...)
+		}
+		result = append(result, strings.Join(parts, "|"))
+	}
+	return result
 }
 
 // ---------------------------------------------------------------------------
@@ -1013,10 +1102,10 @@ b.WriteString("at every level of abstraction.\n\n")
 // ---- inline SVG diagram ----
 // Layout constants
 const (
-svgW    = 960
-colFW   = 60   // x of Frameworks column
-colCtrl = 360  // x of Controls column
-colCSF  = 660  // x of CSF column
+svgW    = 1248
+colFW   = 132  // x of Frameworks column
+colCtrl = 504  // x of Controls column
+colCSF  = 876  // x of CSF column
 boxW    = 240  // box width
 boxH    = 32   // box height
 gap     = 6    // vertical gap between boxes
