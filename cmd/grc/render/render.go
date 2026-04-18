@@ -289,7 +289,7 @@ writePage(filepath.Join(catDir, "_category_.json"), categoryJSON(kindLabel(kind)
 
 for _, ctrl := range group.Controls {
 slug := idSlug(ctrl.ID)
-page := renderControlPage(ctrl, group.Title, kind, audits, activeFindings, frameworkRefs, cfg.Frameworks, isPublic)
+page := renderControlPage(ctrl, group.Title, kind, audits, activeFindings, frameworkRefs, cfg, isPublic)
 writePage(filepath.Join(catDir, slug+".md"), page)
 }
 }
@@ -362,7 +362,7 @@ b.WriteString("\n")
 return b.String()
 }
 
-func renderControlPage(ctrl catalog.Control, groupTitle, kind string, audits *audit.AuditSet, activeFindings []*audit.Finding, frameworkRefs map[string]map[string][]string, frameworks []config.FrameworkConfig, isPublic bool) string {
+func renderControlPage(ctrl catalog.Control, groupTitle, kind string, audits *audit.AuditSet, activeFindings []*audit.Finding, frameworkRefs map[string]map[string][]string, cfg *config.Config, isPublic bool) string {
 cid := ctrl.ID
 effective := catalog.EffectiveStatus(&ctrl)
 
@@ -387,15 +387,26 @@ fmt.Fprintf(&b, "\n:::info Operator Responsibility\n%s\n:::\n", ctrl.OperatorRes
 if len(ctrl.Components) > 0 {
 b.WriteString("\n## Components\n\n")
 for _, c := range ctrl.Components {
-fmt.Fprintf(&b, "- %s\n", c)
+b.WriteString("- ")
+b.WriteString(componentLink(c, cfg))
+b.WriteString("\n")
 }
 }
 if len(ctrl.References) > 0 {
 b.WriteString("\n## Source References\n\n")
 for _, r := range ctrl.References {
+if strings.HasPrefix(r, "https://") || strings.HasPrefix(r, "http://") {
+fmt.Fprintf(&b, "- [%s](%s)\n", r, r)
+continue
+}
 parts := strings.SplitN(r, "/", 2)
 if len(parts) >= 2 {
-fmt.Fprintf(&b, "- [`%s`](https://github.com/%s/%s)\n", r, projectOrg, parts[0])
+repo := resolveRepo(parts[0], cfg)
+if repo != "" {
+fmt.Fprintf(&b, "- [`%s`](https://github.com/%s/tree/main/%s)\n", r, repo, parts[1])
+} else {
+fmt.Fprintf(&b, "- [`%s`](https://github.com/%s/%s/tree/main/%s)\n", r, projectOrg, parts[0], parts[1])
+}
 } else {
 fmt.Fprintf(&b, "- `%s`\n", r)
 }
@@ -417,7 +428,7 @@ fmt.Fprintf(&b, "| %s — %s | %s | %s |\n", findingLink(f), f.Title, f.Severity
 
 // Framework cross-references (generic)
 hasAnyRef := false
-for _, fw := range frameworks {
+for _, fw := range cfg.Frameworks {
 if refs, ok := frameworkRefs[fw.ID]; ok {
 if _, ok2 := refs[cid]; ok2 {
 hasAnyRef = true
@@ -427,7 +438,7 @@ break
 }
 if hasAnyRef {
 b.WriteString("\n## Framework Requirements\n\n")
-for _, fw := range frameworks {
+for _, fw := range cfg.Frameworks {
 refs := frameworkRefs[fw.ID]
 if refs == nil {
 continue
@@ -806,6 +817,36 @@ if rc.sourceURL != "" {
 	fmt.Fprintf(&b, "---\n\n*Source: %s*\n", rc.source)
 }
 return b.String()
+}
+
+func componentLink(name string, cfg *config.Config) string {
+for _, comp := range cfg.Components {
+if comp.Name == name {
+var parts []string
+if comp.Repo != "" {
+parts = append(parts, fmt.Sprintf("[%s](https://github.com/%s)", name, comp.Repo))
+} else {
+parts = append(parts, name)
+}
+if comp.DocsURL != "" {
+parts = append(parts, fmt.Sprintf(" ([docs](%s))", comp.DocsURL))
+}
+return strings.Join(parts, "")
+}
+}
+return name
+}
+
+func resolveRepo(repoShort string, cfg *config.Config) string {
+for _, comp := range cfg.Components {
+if comp.Repo != "" {
+parts := strings.SplitN(comp.Repo, "/", 2)
+if len(parts) == 2 && parts[1] == repoShort {
+return comp.Repo
+}
+}
+}
+return ""
 }
 
 func findingMatchesReq(f *audit.Finding, reqID, fwID string) bool {

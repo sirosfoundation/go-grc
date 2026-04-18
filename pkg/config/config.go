@@ -35,6 +35,13 @@ type FrameworkConfig struct {
 	SourceURL       string `yaml:"source_url"`        // live URL to the framework standard
 }
 
+// ComponentConfig maps a logical component name to its repository and docs.
+type ComponentConfig struct {
+Name    string `yaml:"name"`
+Repo    string `yaml:"repo"`     // GitHub org/repo (e.g. "sirosfoundation/go-wallet-backend")
+DocsURL string `yaml:"docs_url"` // developer docs URL (optional)
+}
+
 // ApplyDefaults fills in zero-value fields with sensible defaults.
 func (fw *FrameworkConfig) ApplyDefaults() {
 	if fw.ListKey == "" {
@@ -90,6 +97,7 @@ type GRCFile struct {
 	Site       DirConfig         `yaml:"site"`
 	OSCAL      DirConfig         `yaml:"oscal"`
 	Frameworks []FrameworkConfig `yaml:"frameworks"`
+Components []ComponentConfig `yaml:"components"`
 }
 
 // Config holds the resolved runtime configuration.
@@ -103,6 +111,7 @@ type Config struct {
 
 	Project          ProjectConfig
 	Frameworks       []FrameworkConfig
+	Components       []ComponentConfig
 	CatalogSubdirs   []string
 	FrameworksSubdir string
 }
@@ -180,6 +189,9 @@ func New(root string) (*Config, error) {
 	if len(grc.Frameworks) > 0 {
 		cfg.Frameworks = grc.Frameworks
 	}
+
+	// Components
+	cfg.Components = grc.Components
 
 	// Apply defaults to each framework config.
 	if len(cfg.Frameworks) == 0 {
