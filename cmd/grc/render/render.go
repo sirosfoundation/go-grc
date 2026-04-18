@@ -144,6 +144,11 @@ if err := generateFrameworks(cfg, cat, maps, audits, activeFindings, fwCats, isP
 cfg.SiteDir = origSiteDir
 return err
 }
+// CSF overview
+if err := generateCSFPage(cfg, cat, isPublic); err != nil {
+cfg.SiteDir = origSiteDir
+return err
+}
 // Findings
 if !isPublic {
 if err := generateFindings(cfg, audits, activeFindings); err != nil {
@@ -179,16 +184,18 @@ return fmt.Errorf("swapping %s: %w", subdir, err)
 }
 os.RemoveAll(old) // clean up previous version
 }
-// Swap index.md
-srcIndex := filepath.Join(stagingDir, "index.md")
-dstIndex := filepath.Join(cfg.SiteDir, "index.md")
-if _, err := os.Stat(srcIndex); err == nil {
-os.Rename(dstIndex, dstIndex+".old")
-if err := os.Rename(srcIndex, dstIndex); err != nil {
-os.Rename(dstIndex+".old", dstIndex)
-return fmt.Errorf("swapping index.md: %w", err)
+// Swap top-level files
+for _, fname := range []string{"index.md", "csf.md"} {
+srcFile := filepath.Join(stagingDir, fname)
+dstFile := filepath.Join(cfg.SiteDir, fname)
+if _, err := os.Stat(srcFile); err == nil {
+os.Rename(dstFile, dstFile+".old")
+if err := os.Rename(srcFile, dstFile); err != nil {
+os.Rename(dstFile+".old", dstFile)
+return fmt.Errorf("swapping %s: %w", fname, err)
 }
-os.RemoveAll(dstIndex + ".old")
+os.RemoveAll(dstFile + ".old")
+}
 }
 
 // Generate Docusaurus sidebars.ts and update config based on profile
@@ -879,6 +886,98 @@ return b.String()
 
 // ---------------------------------------------------------------------------
 // Landing page
+
+// ---------------------------------------------------------------------------
+// CSF (Cybersecurity Framework) overview page
+// ---------------------------------------------------------------------------
+
+var csfFunctions = []struct {
+ID    string
+Name  string
+Desc  string
+Color string
+}{
+{"govern", "Govern (GV)", "Establish and monitor the organization\u2019s cybersecurity risk management strategy, expectations, and policy. Govern provides context for all other functions.", "#6366f1"},
+{"identify", "Identify (ID)", "Understand the organization\u2019s assets, suppliers, and related cybersecurity risks. Prioritize efforts consistent with risk management strategy and business needs.", "#0ea5e9"},
+{"protect", "Protect (PR)", "Implement safeguards to ensure delivery of critical services and reduce the likelihood and impact of cybersecurity events.", "#22c55e"},
+{"detect", "Detect (DE)", "Develop and implement activities to identify the occurrence of a cybersecurity event in a timely manner.", "#eab308"},
+{"respond", "Respond (RS)", "Take action regarding a detected cybersecurity incident to contain its impact.", "#f97316"},
+{"recover", "Recover (RC)", "Maintain plans for resilience and restore capabilities or services impaired by a cybersecurity incident.", "#ef4444"},
+}
+
+func generateCSFPage(cfg *config.Config, cat *catalog.Catalog, isPublic bool) error {
+// Group controls by CSF function
+byFunc := map[string][]catalog.Control{}
+for _, group := range cat.Groups {
+for _, ctrl := range group.Controls {
+if ctrl.CSFFunction != "" {
+if !isPublic && catalog.EffectiveStatus(&ctrl) == "to_do" {
+continue
+}
+byFunc[ctrl.CSFFunction] = append(byFunc[ctrl.CSFFunction], ctrl)
+}
+}
+}
+
+var b strings.Builder
+b.WriteString(`---
+sidebar_label: CSF Functions
+sidebar_position: 4
+title: NIST Cybersecurity Framework Functions
+---
+
+# NIST Cybersecurity Framework Functions
+
+Controls are mapped to the six functions of the
+[NIST Cybersecurity Framework (CSF) 2.0](https://www.nist.gov/cyberframework).
+The functions organize cybersecurity outcomes at the highest level.
+
+`)
+
+// Mermaid diagram
+b.WriteString("```mermaid\nflowchart LR\n")
+for _, fn := range csfFunctions {
+upper := strings.ToUpper(fn.ID)
+b.WriteString(fmt.Sprintf("  %s[\"%s\"]\n", upper, fn.Name))
+b.WriteString(fmt.Sprintf("  style %s fill:%s,color:#fff,stroke:none\n", upper, fn.Color))
+}
+b.WriteString("  GOVERN --> IDENTIFY --> PROTECT --> DETECT --> RESPOND --> RECOVER\n")
+b.WriteString("```\n\n")
+
+// Sections per function
+for _, fn := range csfFunctions {
+fmt.Fprintf(&b, "## %s\n\n%s\n\n", fn.Name, fn.Desc)
+ctrls := byFunc[fn.ID]
+if len(ctrls) == 0 {
+b.WriteString("_No controls mapped to this function._\n\n")
+continue
+}
+if isPublic {
+b.WriteString("| Control | Title | Owner |\n|---------|-------|-------|\n")
+} else {
+b.WriteString("| Control | Title | Status | Owner |\n|---------|-------|--------|-------|\n")
+}
+for _, ctrl := range ctrls {
+slug := idSlug(ctrl.ID)
+kind := "technical"
+if ctrl.Category == "policy" || ctrl.Category == "process" || ctrl.Category == "physical" {
+kind = "organizational"
+}
+if isPublic {
+fmt.Fprintf(&b, "| [%s](controls/%s/%s) | %s | %s |\n",
+ctrl.ID, kind, slug, ctrl.Title, ownerBadge(ctrl.Owner))
+} else {
+fmt.Fprintf(&b, "| [%s](controls/%s/%s) | %s | %s | %s |\n",
+ctrl.ID, kind, slug, ctrl.Title,
+statusBadge(catalog.EffectiveStatus(&ctrl)), ownerBadge(ctrl.Owner))
+}
+}
+b.WriteString("\n")
+}
+
+return writePage(filepath.Join(cfg.SiteDir, "csf.md"), b.String())
+}
+
 // ---------------------------------------------------------------------------
 
 func generateLanding(cfg *config.Config, cat *catalog.Catalog, activeFindings []*audit.Finding, isPublic bool) error {
@@ -899,7 +998,8 @@ fmt.Fprintf(&b, `## Quick Links
 
 - **[Controls](controls)** %s %d security controls
 - **[Frameworks](frameworks)** %s Mappings against %s
-`, "\u2014", total, "\u2014", fwList)
+- **[CSF Functions](csf)** %s NIST Cybersecurity Framework function overview
+`, "\u2014", total, "\u2014", fwList, "\u2014")
 } else {
 assessed, verified := 0, 0
 for _, ctrl := range cat.Controls {
@@ -922,8 +1022,9 @@ fmt.Fprintf(&b, `## Quick Links
 
 - **[Controls](controls)** %s %d of %d controls assessed
 - **[Frameworks](frameworks)** %s Coverage against %s
+- **[CSF Functions](csf)** %s NIST Cybersecurity Framework function overview
 - **[Findings](findings)** %s %d open audit findings
-`, "\u2014", assessed, total, "\u2014", fwList, "\u2014", len(activeFindings))
+`, "\u2014", assessed, total, "\u2014", fwList, "\u2014", "\u2014", len(activeFindings))
 }
 return writePage(filepath.Join(cfg.SiteDir, "index.md"), b.String())
 }
@@ -1016,16 +1117,16 @@ return strings.Join(out, " ")
 }
 
 func csfBadge(s string) string {
-m := map[string]string{
-"identify": `<span class="badge--csf">identify</span>`,
-"protect":  `<span class="badge--csf">protect</span>`,
-"detect":   `<span class="badge--csf">detect</span>`,
-"respond":  `<span class="badge--csf">respond</span>`,
-"recover":  `<span class="badge--csf">recover</span>`,
-"govern":   `<span class="badge--csf">govern</span>`,
+anchors := map[string]string{
+"govern":   "govern-gv",
+"identify": "identify-id",
+"protect":  "protect-pr",
+"detect":   "detect-de",
+"respond":  "respond-rs",
+"recover":  "recover-rc",
 }
-if v, ok := m[s]; ok {
-return v
+if a, ok := anchors[s]; ok {
+return fmt.Sprintf(`[<span class="badge--csf">%s</span>](/csf#%s)`, s, a)
 }
 return s
 }
