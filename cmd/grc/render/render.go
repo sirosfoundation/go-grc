@@ -400,70 +400,121 @@ b.WriteString("---\nsidebar_label: Overview\nsidebar_position: 1\ntitle: Control
 if isPublic {
 fmt.Fprintf(&b, "%d security controls across the platform.\n\n", total)
 for _, kind := range []string{"technical", "organizational"} {
-label := "Technical Controls (Platform-Provided)"
-if kind == "organizational" {
-label = "Organizational Controls (Operator-Required)"
-}
-fmt.Fprintf(&b, "## %s\n\n| ID | Title | Owner | CSF Function |\n|----|-------|-------|-------------|\n", label)
-for _, group := range cat.Groups {
-if groupKind(group) != kind {
-continue
-}
-for _, ctrl := range group.Controls {
-slug := idSlug(ctrl.ID)
-fmt.Fprintf(&b, "| [%s](%s/%s) | %s | %s | %s |\n",
-ctrl.ID, kind, slug, ctrl.Title,
-ownerBadge(ctrl.Owner), csfBadge(ctrl.CSFFunction))
-}
-}
-b.WriteString("\n")
-}
-} else {
-assessed, verified := 0, 0
-for _, ctrl := range cat.Controls {
-eff := catalog.EffectiveStatus(ctrl)
-if eff != "to_do" {
-assessed++
-}
-if eff == "verified" || eff == "validated" {
-verified++
-}
-}
-fmt.Fprintf(&b, "%d of %d controls assessed (%d verified). "+
-"Controls not yet referenced by any audit are omitted.\n\n",
-assessed, total, verified)
-for _, kind := range []string{"technical", "organizational"} {
-label := "Technical Controls (Platform-Provided)"
-if kind == "organizational" {
-label = "Organizational Controls (Operator-Required)"
-}
-fmt.Fprintf(&b, "## %s\n\n| ID | Title | Status | Owner | CSF Function |\n|----|-------|--------|-------|-------------|\n", label)
-for _, group := range cat.Groups {
-if groupKind(group) != kind {
-continue
-}
-for _, ctrl := range group.Controls {
-if catalog.EffectiveStatus(&ctrl) == "to_do" {
-continue
-}
-slug := idSlug(ctrl.ID)
-fmt.Fprintf(&b, "| [%s](%s/%s) | %s | %s | %s | %s |\n",
-ctrl.ID, kind, slug, ctrl.Title,
-statusBadge(catalog.EffectiveStatus(&ctrl)), ownerBadge(ctrl.Owner), csfBadge(ctrl.CSFFunction))
-}
-}
-b.WriteString("\n")
-}
-}
-return b.String()
+			fmt.Fprintf(&b, "## %s Controls\n\n", strings.Title(kind))
+			
+			// Collect controls by owner within this kind
+			controlsByOwner := make(map[string][]catalog.Control)
+			for _, group := range cat.Groups {
+				if groupKind(group) != kind {
+					continue
+				}
+				for _, ctrl := range group.Controls {
+					owner := ctrl.Owner
+					if owner == "" {
+						owner = "platform"
+					}
+					controlsByOwner[owner] = append(controlsByOwner[owner], ctrl)
+				}
+			}
+			
+			// Sort controls within each owner group
+			for owner := range controlsByOwner {
+				sort.Slice(controlsByOwner[owner], func(i, j int) bool {
+					return controlsByOwner[owner][i].ID < controlsByOwner[owner][j].ID
+				})
+			}
+			
+			// Render subsections in consistent order
+			ownerOrder := []string{"platform", "operator", "shared"}
+			for _, owner := range ownerOrder {
+				if ctrls, ok := controlsByOwner[owner]; ok && len(ctrls) > 0 {
+					subLabel := map[string]string{
+						"platform": "Platform-Provided",
+						"operator": "Operator-Required",
+						"shared":   "Shared Responsibilities",
+					}[owner]
+					fmt.Fprintf(&b, "### %s\n\n| ID | Title | Owner | CSF Function |\n|----|-------|-------|-------------|\n", subLabel)
+					for _, ctrl := range ctrls {
+						slug := idSlug(ctrl.ID)
+						fmt.Fprintf(&b, "| [%s](%s/%s) | %s | %s | %s |\n",
+							ctrl.ID, kind, slug, ctrl.Title,
+							ownerBadge(ctrl.Owner), csfBadge(ctrl.CSFFunction))
+					}
+					b.WriteString("\n")
+				}
+			}
+		}
+	} else {
+		assessed, verified := 0, 0
+		for _, ctrl := range cat.Controls {
+			eff := catalog.EffectiveStatus(ctrl)
+			if eff != "to_do" {
+				assessed++
+			}
+			if eff == "verified" || eff == "validated" {
+				verified++
+			}
+		}
+		fmt.Fprintf(&b, "%d of %d controls assessed (%d verified). "+
+			"Controls not yet referenced by any audit are omitted.\n\n",
+			assessed, total, verified)
+		for _, kind := range []string{"technical", "organizational"} {
+			fmt.Fprintf(&b, "## %s Controls\n\n", strings.Title(kind))
+			
+			// Collect assessed controls by owner within this kind
+			controlsByOwner := make(map[string][]catalog.Control)
+			for _, group := range cat.Groups {
+				if groupKind(group) != kind {
+					continue
+				}
+				for _, ctrl := range group.Controls {
+					if catalog.EffectiveStatus(&ctrl) == "to_do" {
+						continue
+					}
+					owner := ctrl.Owner
+					if owner == "" {
+						owner = "platform"
+					}
+					controlsByOwner[owner] = append(controlsByOwner[owner], ctrl)
+				}
+			}
+			
+			// Sort controls within each owner group
+			for owner := range controlsByOwner {
+				sort.Slice(controlsByOwner[owner], func(i, j int) bool {
+					return controlsByOwner[owner][i].ID < controlsByOwner[owner][j].ID
+				})
+			}
+			
+			// Render subsections in consistent order
+			ownerOrder := []string{"platform", "operator", "shared"}
+			for _, owner := range ownerOrder {
+				if ctrls, ok := controlsByOwner[owner]; ok && len(ctrls) > 0 {
+					subLabel := map[string]string{
+						"platform": "Platform-Provided",
+						"operator": "Operator-Required",
+						"shared":   "Shared Responsibilities",
+					}[owner]
+					fmt.Fprintf(&b, "### %s\n\n| ID | Title | Status | Owner | CSF Function |\n|----|-------|--------|-------|-------------|\n", subLabel)
+					for _, ctrl := range ctrls {
+						slug := idSlug(ctrl.ID)
+						fmt.Fprintf(&b, "| [%s](%s/%s) | %s | %s | %s | %s |\n",
+							ctrl.ID, kind, slug, ctrl.Title,
+							statusBadge(catalog.EffectiveStatus(&ctrl)), ownerBadge(ctrl.Owner), csfBadge(ctrl.CSFFunction))
+					}
+					b.WriteString("\n")
+				}
+			}
+		}
+	}
+	return b.String()
 }
 
 func renderControlPage(ctrl catalog.Control, groupTitle, kind string, audits *audit.AuditSet, activeFindings []*audit.Finding, frameworkRefs map[string]map[string][]string, cfg *config.Config, isPublic bool) string {
-cid := ctrl.ID
-effective := catalog.EffectiveStatus(&ctrl)
-
-var b strings.Builder
-fmt.Fprintf(&b, "---\nsidebar_label: \"%s\"\ntitle: \"%s — %s\"\n---\n\n", cid, cid, ctrl.Title)
+	cid := ctrl.ID
+	effective := catalog.EffectiveStatus(&ctrl)
+	var b strings.Builder
+	fmt.Fprintf(&b, "---\nsidebar_label: \"%s\"\ntitle: \"%s — %s\"\n---\n\n", cid, cid, ctrl.Title)
 fmt.Fprintf(&b, "# %s — %s\n\n", cid, ctrl.Title)
 b.WriteString("| Property | Value |\n|----------|-------|\n")
 if !isPublic {
