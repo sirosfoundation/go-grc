@@ -43,14 +43,6 @@ var (
 	rePullURL   = regexp.MustCompile(`https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)`)
 )
 
-// New creates a Client. It expects GITHUB_TOKEN in the environment (via go-github default).
-func New(ctx context.Context) (*Client, error) {
-	client := gh.NewClient(nil).WithAuthToken("")
-	// go-github v72 reads GITHUB_TOKEN from env automatically when token is empty
-	// For explicit token, callers should set it via WithAuthToken.
-	return &Client{client: client}, nil
-}
-
 // NewWithToken creates a Client with an explicit token.
 func NewWithToken(ctx context.Context, token string) *Client {
 	client := gh.NewClient(nil).WithAuthToken(token)

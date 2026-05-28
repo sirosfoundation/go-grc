@@ -121,6 +121,13 @@ func run(root string) error {
 					add(fmt.Sprintf("finding %s: unknown control %q", f.ID, cid))
 				}
 			}
+			for i, ev := range f.Evidence {
+				if ev.Type == "" && ev.Ref == "" && ev.Description == "" {
+					add(fmt.Sprintf("finding %s: evidence[%d] has all empty fields", f.ID, i))
+				} else if ev.Type == "" {
+					add(fmt.Sprintf("finding %s: evidence[%d] missing type", f.ID, i))
+				}
+			}
 		}
 	}
 
