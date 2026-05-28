@@ -225,6 +225,18 @@ func run(root, profile string) error {
 // Architecture doc sanitization (public profile)
 // ---------------------------------------------------------------------------
 
+// reFindingRef matches inline finding ID references (e.g., AV-P-3, STR-M-1, EN-S-2, ISO-T-5, F-001).
+// It also captures optional surrounding phrases like "tracked in", "per", "resolved", "see".
+var reFindingRef = regexp.MustCompile(
+	`(?i)` +
+		`(?:\s*\(?\s*` + // optional leading whitespace/paren
+		`(?:tracked in|per|resolved|see|address(?:ed)? (?:via|in))\s+` + // optional lead-in phrase
+		`)?\b` +
+		`(?:AV|STR|EN|ISO|F|P)-[A-Z]*-?\d+` + // the finding ID
+		`\b` +
+		`\)?`, // optional trailing paren
+)
+
 func sanitizeArchitectureDocs(siteDir string) error {
 	archDir := filepath.Join(siteDir, "architecture")
 	entries, err := os.ReadDir(archDir)
@@ -253,6 +265,8 @@ func sanitizeArchitectureDocs(siteDir string) error {
 				strings.HasPrefix(trimmed, "| **Severity**") {
 				continue
 			}
+			// Strip inline finding ID references
+			line = reFindingRef.ReplaceAllString(line, "")
 			out = append(out, line)
 		}
 		// For index.md, strip the Finding column from the documents table
