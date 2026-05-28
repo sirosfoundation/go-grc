@@ -16,9 +16,10 @@ import (
 )
 
 type Package struct {
-	Metadata PackageMeta     `json:"metadata"`
-	Controls []ControlExport `json:"controls"`
-	Findings []FindingExport `json:"findings"`
+	Metadata   PackageMeta       `json:"metadata"`
+	Controls   []ControlExport   `json:"controls"`
+	Findings   []FindingExport   `json:"findings"`
+	Frameworks []FrameworkExport `json:"frameworks,omitempty"`
 }
 
 type PackageMeta struct {
@@ -52,6 +53,18 @@ type EvidenceExport struct {
 	Description string `json:"description"`
 }
 
+type FrameworkExport struct {
+	ID      string                `json:"id"`
+	Name    string                `json:"name"`
+	Entries []FrameworkEntryExport `json:"entries"`
+}
+
+type FrameworkEntryExport struct {
+	Key      string   `json:"key"`
+	Status   string   `json:"status,omitempty"`
+	Controls []string `json:"controls"`
+}
+
 func NewCommand() *cobra.Command {
 	var outputDir string
 	cmd := &cobra.Command{
@@ -80,8 +93,9 @@ return fmt.Errorf("loading config: %w", err)
 	if err != nil {
 		return fmt.Errorf("loading audits: %w", err)
 	}
-	// mappings loaded for completeness but not yet exported in v1
-	if _, err := mapping.Load(cfg.MappingsDir, cfg.Frameworks); err != nil {
+	// Export framework mappings
+	maps, err := mapping.Load(cfg.MappingsDir, cfg.Frameworks)
+	if err != nil {
 		return fmt.Errorf("loading mappings: %w", err)
 	}
 
@@ -90,6 +104,22 @@ return fmt.Errorf("loading config: %w", err)
 			GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 			Tool:        "grc",
 		},
+	}
+
+	for _, fw := range cfg.Frameworks {
+		fm, ok := maps[fw.ID]
+		if !ok {
+			continue
+		}
+		fe := FrameworkExport{ID: fw.ID, Name: fw.Name}
+		for _, e := range fm.Entries {
+			fe.Entries = append(fe.Entries, FrameworkEntryExport{
+				Key:      e.Key,
+				Status:   e.Status,
+				Controls: e.Controls,
+			})
+		}
+		pkg.Frameworks = append(pkg.Frameworks, fe)
 	}
 
 	for _, group := range cat.Groups {
