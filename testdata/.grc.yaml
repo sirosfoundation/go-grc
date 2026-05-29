@@ -33,3 +33,10 @@ frameworks:
     sidebar_position: 3
     key_field: match_name
     source: "GDPR Checklist for Data Controllers"
+
+oscal:
+  dir: oscal
+
+components:
+  - name: "Test Service"
+    repo: "test/service"
