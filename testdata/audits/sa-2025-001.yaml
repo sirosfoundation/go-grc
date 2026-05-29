@@ -44,4 +44,5 @@ findings:
     owner: "security"
     controls:
       - "SEC-KEY-01"
+      - "GOV-POL-01"
     description: "Signing keys have no rotation schedule."

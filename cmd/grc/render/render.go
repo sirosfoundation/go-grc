@@ -1045,7 +1045,54 @@ func generateFindings(cfg *config.Config, audits *audit.AuditSet, activeFindings
 	dir := filepath.Join(cfg.SiteDir, "findings")
 	writePage(filepath.Join(dir, "_category_.json"), categoryJSON("Findings", 3))
 	writePage(filepath.Join(dir, "index.md"), renderFindingsIndex(activeFindings))
+
+	// Generate per-finding detail pages
+	for _, f := range activeFindings {
+		slug := idSlug(f.ID)
+		writePage(filepath.Join(dir, slug+".md"), renderFindingPage(f, cfg))
+	}
 	return nil
+}
+
+func renderFindingPage(f *audit.Finding, cfg *config.Config) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "---\ntitle: \"%s — %s\"\nsidebar_label: \"%s\"\n---\n\n", f.ID, f.Title, f.ID)
+	fmt.Fprintf(&b, "# %s — %s\n\n", f.ID, f.Title)
+
+	// Metadata table
+	b.WriteString("| | |\n|---|---|\n")
+	fmt.Fprintf(&b, "| **Severity** | %s %s |\n", sevIcon(f.Severity), f.Severity)
+	fmt.Fprintf(&b, "| **Status** | %s |\n", f.Status)
+	fmt.Fprintf(&b, "| **Owner** | %s |\n", ownerBadge(f.Owner))
+	if f.TrackingIssue != nil {
+		fmt.Fprintf(&b, "| **Tracking Issue** | [%s#%d](https://github.com/%s/issues/%d) |\n",
+			f.TrackingIssue.Repo, f.TrackingIssue.Number, f.TrackingIssue.Repo, f.TrackingIssue.Number)
+	}
+	if f.ResolvedDate != "" {
+		fmt.Fprintf(&b, "| **Resolved** | %s |\n", f.ResolvedDate)
+	}
+	b.WriteString("\n")
+
+	// Description
+	if f.Description != "" {
+		fmt.Fprintf(&b, "## Description\n\n%s\n\n", f.Description)
+	}
+
+	// Controls
+	if len(f.Controls) > 0 {
+		fmt.Fprintf(&b, "## Controls\n\n%s\n\n", controlLinks(f.Controls))
+	}
+
+	// Evidence
+	if len(f.Evidence) > 0 {
+		b.WriteString("## Evidence\n\n| Type | Reference | Description |\n|------|-----------|-------------|\n")
+		for _, ev := range f.Evidence {
+			fmt.Fprintf(&b, "| %s | %s | %s |\n", ev.Type, ev.Ref, ev.Description)
+		}
+		b.WriteString("\n")
+	}
+
+	return b.String()
 }
 
 func renderFindingsIndex(findings []*audit.Finding) string {
