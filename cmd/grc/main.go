@@ -9,6 +9,7 @@ import (
 	"github.com/sirosfoundation/go-grc/cmd/grc/derive"
 	"github.com/sirosfoundation/go-grc/cmd/grc/export"
 	"github.com/sirosfoundation/go-grc/cmd/grc/initialize"
+	"github.com/sirosfoundation/go-grc/cmd/grc/oscal"
 	"github.com/sirosfoundation/go-grc/cmd/grc/render"
 	"github.com/sirosfoundation/go-grc/cmd/grc/status"
 	"github.com/sirosfoundation/go-grc/cmd/grc/sync"
@@ -34,6 +35,7 @@ func main() {
 	rootCmd.AddCommand(derive.NewCommand())
 	rootCmd.AddCommand(render.NewCommand())
 	rootCmd.AddCommand(export.NewCommand())
+	rootCmd.AddCommand(oscal.NewCommand())
 	rootCmd.AddCommand(status.NewCommand())
 	rootCmd.AddCommand(validate.NewCommand())
 
