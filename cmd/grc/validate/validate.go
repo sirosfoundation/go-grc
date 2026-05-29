@@ -85,7 +85,13 @@ func run(root string) error {
 			add(fmt.Sprintf("framework %s: mapping file %s not found", fw.ID, fw.MappingFile))
 			continue
 		}
+		// Duplicate requirement key detection
+		seenKeys := make(map[string]bool)
 		for _, e := range fm.Entries {
+			if seenKeys[e.Key] {
+				add(fmt.Sprintf("framework %s: duplicate requirement key %q", fw.ID, e.Key))
+			}
+			seenKeys[e.Key] = true
 			for _, cid := range e.Controls {
 				if _, ok := cat.Controls[cid]; !ok {
 					add(fmt.Sprintf("framework %s, entry %s: unknown control %q", fw.ID, e.Key, cid))
@@ -128,6 +134,36 @@ func run(root string) error {
 					add(fmt.Sprintf("finding %s: evidence[%d] missing type", f.ID, i))
 				}
 			}
+		}
+	}
+
+	// Detect orphan controls (no findings and no framework mappings) — warnings only
+	var warnings []string
+	referencedControls := make(map[string]bool)
+	for _, file := range audits.Files {
+		for _, f := range file.Data.Findings {
+			for _, cid := range f.Controls {
+				referencedControls[cid] = true
+			}
+		}
+	}
+	for _, fm := range maps {
+		for _, e := range fm.Entries {
+			for _, cid := range e.Controls {
+				referencedControls[cid] = true
+			}
+		}
+	}
+	for id := range cat.Controls {
+		if !referencedControls[id] {
+			warnings = append(warnings, fmt.Sprintf("control %s: orphan — not referenced by any finding or framework mapping", id))
+		}
+	}
+
+	if len(warnings) > 0 {
+		fmt.Printf("%d warning(s):\n", len(warnings))
+		for _, w := range warnings {
+			fmt.Printf("  ⚠ %s\n", w)
 		}
 	}
 
