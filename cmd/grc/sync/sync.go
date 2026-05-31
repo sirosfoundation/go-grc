@@ -279,7 +279,7 @@ func run(root, repo string, dryRun bool) error {
 				}
 			}
 
-			// Phase 4: Collect evidence from merged PRs
+			// Phase 4: Collect evidence from merged PRs, closed issues, and tracking issues
 			if f.Status == "resolved" || newStatus == "resolved" {
 				for _, pr := range f.PullRequests {
 					if hasEvidenceRef(f.Evidence, pr.Repo, pr.Number) {
@@ -302,6 +302,55 @@ func run(root, repo string, dryRun bool) error {
 						stats.evidenceCollected++
 						if !dryRun {
 							fmt.Printf("  %s: collected evidence from PR %s#%d\n", f.ID, pr.Repo, pr.Number)
+						}
+					}
+				}
+
+				// Collect evidence from closed implementation issues
+				for _, impl := range f.Issues {
+					if hasEvidenceRef(f.Evidence, impl.Repo, impl.Number) {
+						continue
+					}
+					closedAt, err := client.GetIssueClosedAt(ctx, impl.Repo, impl.Number)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "  Warning: cannot check issue %s#%d: %v\n", impl.Repo, impl.Number, err)
+						continue
+					}
+					if closedAt != "" {
+						ev := audit.Evidence{
+							Type:        "closed_issue",
+							Ref:         fmt.Sprintf("%s#%d", impl.Repo, impl.Number),
+							Description: fmt.Sprintf("Closed on %s", closedAt),
+							CollectedAt: time.Now().UTC().Format("2006-01-02"),
+						}
+						f.AddEvidence(ev)
+						modified[file] = true
+						stats.evidenceCollected++
+						if !dryRun {
+							fmt.Printf("  %s: collected evidence from issue %s#%d\n", f.ID, impl.Repo, impl.Number)
+						}
+					}
+				}
+
+				// Collect evidence from closed tracking issue itself (fallback when no other evidence)
+				if f.TrackingIssue != nil && !f.HasEvidence() {
+					closedAt, err := client.GetIssueClosedAt(ctx, f.TrackingIssue.Repo, f.TrackingIssue.Number)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "  Warning: cannot check tracking issue %s#%d: %v\n",
+							f.TrackingIssue.Repo, f.TrackingIssue.Number, err)
+					} else if closedAt != "" {
+						ev := audit.Evidence{
+							Type:        "tracking_issue_closed",
+							Ref:         fmt.Sprintf("%s#%d", f.TrackingIssue.Repo, f.TrackingIssue.Number),
+							Description: fmt.Sprintf("Tracking issue closed on %s", closedAt),
+							CollectedAt: time.Now().UTC().Format("2006-01-02"),
+						}
+						f.AddEvidence(ev)
+						modified[file] = true
+						stats.evidenceCollected++
+						if !dryRun {
+							fmt.Printf("  %s: collected evidence from tracking issue %s#%d\n",
+								f.ID, f.TrackingIssue.Repo, f.TrackingIssue.Number)
 						}
 					}
 				}
