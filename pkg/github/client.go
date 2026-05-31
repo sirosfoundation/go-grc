@@ -231,6 +231,28 @@ func (c *Client) GetPRMergeInfo(ctx context.Context, repo string, number int) (b
 	return true, mergedAt, pr.GetMergeCommitSHA(), nil
 }
 
+// GetIssueClosedAt returns the closed_at date for a closed issue.
+// Returns ("", nil) if the issue is not closed.
+func (c *Client) GetIssueClosedAt(ctx context.Context, repo string, number int) (string, error) {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return "", err
+	}
+
+	issue, _, err := c.client.Issues.Get(ctx, owner, name, number)
+	if err != nil {
+		return "", fmt.Errorf("getting %s#%d: %w", repo, number, err)
+	}
+
+	if issue.GetState() != "closed" {
+		return "", nil
+	}
+	if issue.ClosedAt != nil {
+		return issue.ClosedAt.Format("2006-01-02"), nil
+	}
+	return "", nil
+}
+
 // AddLabels adds labels to an existing issue.
 func (c *Client) AddLabels(ctx context.Context, repo string, number int, labels []string) error {
 	owner, name, err := splitRepo(repo)
