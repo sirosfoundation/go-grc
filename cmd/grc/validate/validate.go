@@ -48,6 +48,12 @@ var validSeverities = map[string]bool{
 	"critical": true, "high": true, "medium": true, "low": true, "info": true,
 }
 
+var validEvidenceTypes = map[string]bool{
+	"merged_pr": true, "closed_issue": true, "tracking_issue": true,
+	"tracking_issue_closed": true, "control_verified": true,
+	"document": true, "test_result": true, "configuration": true,
+}
+
 func run(root string) error {
 	cfg, err := config.New(root)
 	if err != nil {
@@ -55,6 +61,7 @@ func run(root string) error {
 	}
 
 	var problems []string
+	var warnings []string
 	add := func(msg string) { problems = append(problems, msg) }
 
 	// Validate catalog
@@ -132,13 +139,17 @@ func run(root string) error {
 					add(fmt.Sprintf("finding %s: evidence[%d] has all empty fields", f.ID, i))
 				} else if ev.Type == "" {
 					add(fmt.Sprintf("finding %s: evidence[%d] missing type", f.ID, i))
+				} else if !validEvidenceTypes[ev.Type] {
+					add(fmt.Sprintf("finding %s: evidence[%d] unknown type %q", f.ID, i, ev.Type))
 				}
+			}
+			if f.Status == "resolved" && len(f.Evidence) == 0 {
+				warnings = append(warnings, fmt.Sprintf("finding %s: resolved without evidence", f.ID))
 			}
 		}
 	}
 
 	// Detect orphan controls (no findings and no framework mappings) — warnings only
-	var warnings []string
 	referencedControls := make(map[string]bool)
 	for _, file := range audits.Files {
 		for _, f := range file.Data.Findings {
