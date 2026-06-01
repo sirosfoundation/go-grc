@@ -1,7 +1,9 @@
 package status
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -11,18 +13,53 @@ import (
 )
 
 func NewCommand() *cobra.Command {
+	var format string
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show compliance status overview (read-only)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root, _ := cmd.Flags().GetString("root")
-			return run(root)
+			return run(root, format)
 		},
 	}
+	cmd.Flags().StringVar(&format, "format", "text", `Output format: "text" or "json"`)
 	return cmd
 }
 
-func run(root string) error {
+// StatusReport is the structured output of the status command.
+type StatusReport struct {
+	Findings FindingsSummary `json:"findings"`
+	Controls ControlsSummary `json:"controls"`
+	Audits   []AuditSummary  `json:"audits"`
+}
+
+type FindingsSummary struct {
+	Total        int `json:"total"`
+	Open         int `json:"open"`
+	InProgress   int `json:"in_progress"`
+	Resolved     int `json:"resolved"`
+	WithEvidence int `json:"with_evidence"`
+	Accepted     int `json:"accepted"`
+	Tracked      int `json:"tracked"`
+	Untracked    int `json:"untracked"`
+}
+
+type ControlsSummary struct {
+	Total      int `json:"total"`
+	Verified   int `json:"verified"`
+	InProgress int `json:"in_progress"`
+	ToDo       int `json:"to_do"`
+}
+
+type AuditSummary struct {
+	ID         string `json:"id"`
+	Total      int    `json:"total"`
+	Open       int    `json:"open"`
+	InProgress int    `json:"in_progress"`
+	Done       int    `json:"done"`
+}
+
+func run(root, format string) error {
 	cfg, err := config.New(root)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
@@ -38,79 +75,100 @@ func run(root string) error {
 		return fmt.Errorf("loading audits: %w", err)
 	}
 
-	total := 0
-	tracked, untracked := 0, 0
-	open, inProgress, resolved, accepted := 0, 0, 0, 0
-	withEvidence := 0
+	report := collect(cat, audits)
 
+	if format == "json" {
+		return writeJSON(report)
+	}
+	writeText(report)
+	return nil
+}
+
+func collect(cat *catalog.Catalog, audits *audit.AuditSet) StatusReport {
+	var fs FindingsSummary
 	for _, ref := range audits.FindingsByID {
-		total++
+		fs.Total++
 		f := ref.Finding
 		if f.TrackingIssue != nil {
-			tracked++
+			fs.Tracked++
 		} else {
-			untracked++
+			fs.Untracked++
 		}
 		switch f.Status {
 		case "open":
-			open++
+			fs.Open++
 		case "in_progress":
-			inProgress++
+			fs.InProgress++
 		case "resolved":
-			resolved++
+			fs.Resolved++
 			if f.HasEvidence() {
-				withEvidence++
+				fs.WithEvidence++
 			}
 		case "accepted":
-			accepted++
+			fs.Accepted++
 		}
 	}
 
-	fmt.Printf("Findings: %d total\n", total)
-	fmt.Printf("  Open:          %d\n", open)
-	fmt.Printf("  In Progress:   %d\n", inProgress)
-	fmt.Printf("  Resolved:      %d (%d with evidence)\n", resolved, withEvidence)
-	fmt.Printf("  Accepted:      %d\n", accepted)
-	fmt.Printf("  Tracked:       %d\n", tracked)
-	fmt.Printf("  Untracked:     %d\n", untracked)
-	fmt.Println()
-
-	totalCtrls := len(cat.Controls)
-	ctrlVerified, ctrlToDo, ctrlInProgress := 0, 0, 0
+	var cs ControlsSummary
+	cs.Total = len(cat.Controls)
 	for _, ctrl := range cat.Controls {
 		switch ctrl.Status {
 		case "verified", "validated":
-			ctrlVerified++
+			cs.Verified++
 		case "in_progress":
-			ctrlInProgress++
+			cs.InProgress++
 		default:
-			ctrlToDo++
+			cs.ToDo++
 		}
 	}
 
-	fmt.Printf("Controls: %d total\n", totalCtrls)
-	fmt.Printf("  Verified:      %d\n", ctrlVerified)
-	fmt.Printf("  In Progress:   %d\n", ctrlInProgress)
-	fmt.Printf("  To Do:         %d\n", ctrlToDo)
+	var as []AuditSummary
+	for _, file := range audits.Files {
+		a := file.Data.Audit
+		s := AuditSummary{ID: a.ID, Total: len(file.Data.Findings)}
+		for _, f := range file.Data.Findings {
+			switch f.Status {
+			case "open":
+				s.Open++
+			case "in_progress":
+				s.InProgress++
+			case "resolved", "accepted":
+				s.Done++
+			}
+		}
+		as = append(as, s)
+	}
+
+	return StatusReport{Findings: fs, Controls: cs, Audits: as}
+}
+
+func writeJSON(report StatusReport) error {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(report)
+}
+
+func writeText(report StatusReport) {
+	fs := report.Findings
+	fmt.Printf("Findings: %d total\n", fs.Total)
+	fmt.Printf("  Open:          %d\n", fs.Open)
+	fmt.Printf("  In Progress:   %d\n", fs.InProgress)
+	fmt.Printf("  Resolved:      %d (%d with evidence)\n", fs.Resolved, fs.WithEvidence)
+	fmt.Printf("  Accepted:      %d\n", fs.Accepted)
+	fmt.Printf("  Tracked:       %d\n", fs.Tracked)
+	fmt.Printf("  Untracked:     %d\n", fs.Untracked)
+	fmt.Println()
+
+	cs := report.Controls
+	fmt.Printf("Controls: %d total\n", cs.Total)
+	fmt.Printf("  Verified:      %d\n", cs.Verified)
+	fmt.Printf("  In Progress:   %d\n", cs.InProgress)
+	fmt.Printf("  To Do:         %d\n", cs.ToDo)
 	fmt.Println()
 
 	fmt.Printf("%-20s %5s %5s %5s %5s\n", "Audit", "Total", "Open", "InPrg", "Done")
 	fmt.Println("-------------------------------------------------------")
-	for _, file := range audits.Files {
-		a := file.Data.Audit
-		o, ip, r := 0, 0, 0
-		for _, f := range file.Data.Findings {
-			switch f.Status {
-			case "open":
-				o++
-			case "in_progress":
-				ip++
-			case "resolved", "accepted":
-				r++
-			}
-		}
-		fmt.Printf("%-20s %5d %5d %5d %5d\n", a.ID, len(file.Data.Findings), o, ip, r)
+	for _, a := range report.Audits {
+		fmt.Printf("%-20s %5d %5d %5d %5d\n", a.ID, a.Total, a.Open, a.InProgress, a.Done)
 	}
-
-	return nil
 }
