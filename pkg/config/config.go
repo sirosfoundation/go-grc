@@ -37,9 +37,25 @@ type FrameworkConfig struct {
 
 // ComponentConfig maps a logical component name to its repository and docs.
 type ComponentConfig struct {
-Name    string `yaml:"name"`
-Repo    string `yaml:"repo"`     // GitHub org/repo (e.g. "sirosfoundation/go-wallet-backend")
-DocsURL string `yaml:"docs_url"` // developer docs URL (optional)
+	Name    string `yaml:"name"`
+	Repo    string `yaml:"repo"`     // GitHub org/repo (e.g. "sirosfoundation/go-wallet-backend")
+	DocsURL string `yaml:"docs_url"` // developer docs URL (optional)
+}
+
+// ProfileConfig defines a deployment profile for tracking compliance per configuration.
+type ProfileConfig struct {
+	ID          string `yaml:"id"`
+	Name        string `yaml:"name"`
+	Description string `yaml:"description,omitempty"`
+	Default     bool   `yaml:"default,omitempty"`  // the base profile (findings without profiles: apply here)
+	Inherits    string `yaml:"inherits,omitempty"` // parent profile ID (overrides extend parent)
+}
+
+// RiskRegisterConfig holds configuration for the risk register.
+type RiskRegisterConfig struct {
+	Dir    string   `yaml:"dir"`
+	Files  []string `yaml:"files"`
+	Public bool     `yaml:"public"` // whether to include in public site render
 }
 
 // ApplyDefaults fills in zero-value fields with sensible defaults.
@@ -90,14 +106,16 @@ type CatalogConfig struct {
 
 // GRCFile is the top-level .grc.yaml file structure.
 type GRCFile struct {
-	Project    ProjectConfig     `yaml:"project"`
-	Catalog    CatalogConfig     `yaml:"catalog"`
-	Mappings   DirConfig         `yaml:"mappings"`
-	Audits     DirConfig         `yaml:"audits"`
-	Site       DirConfig         `yaml:"site"`
-	OSCAL      DirConfig         `yaml:"oscal"`
-	Frameworks []FrameworkConfig `yaml:"frameworks"`
-Components []ComponentConfig `yaml:"components"`
+	Project      ProjectConfig      `yaml:"project"`
+	Catalog      CatalogConfig      `yaml:"catalog"`
+	Mappings     DirConfig          `yaml:"mappings"`
+	Audits       DirConfig          `yaml:"audits"`
+	Site         DirConfig          `yaml:"site"`
+	OSCAL        DirConfig          `yaml:"oscal"`
+	Frameworks   []FrameworkConfig  `yaml:"frameworks"`
+	Components   []ComponentConfig  `yaml:"components"`
+	Profiles     []ProfileConfig    `yaml:"profiles"`
+	RiskRegister RiskRegisterConfig `yaml:"risk_register"`
 }
 
 // Config holds the resolved runtime configuration.
@@ -108,10 +126,13 @@ type Config struct {
 	AuditsDir   string
 	SiteDir     string
 	OSCALDir    string
+	RiskDir     string
 
 	Project          ProjectConfig
 	Frameworks       []FrameworkConfig
 	Components       []ComponentConfig
+	Profiles         []ProfileConfig
+	RiskRegister     RiskRegisterConfig
 	CatalogSubdirs   []string
 	FrameworksSubdir string
 }
@@ -193,6 +214,15 @@ func New(root string) (*Config, error) {
 	// Components
 	cfg.Components = grc.Components
 
+	// Profiles
+	cfg.Profiles = grc.Profiles
+
+	// Risk register
+	cfg.RiskRegister = grc.RiskRegister
+	if cfg.RiskRegister.Dir != "" {
+		cfg.RiskDir = filepath.Join(root, cfg.RiskRegister.Dir)
+	}
+
 	// Apply defaults to each framework config.
 	if len(cfg.Frameworks) == 0 {
 		cfg.Frameworks = make([]FrameworkConfig, len(DefaultFrameworks))
@@ -207,7 +237,6 @@ func New(root string) (*Config, error) {
 	}
 	return cfg, nil
 }
-
 
 // Validate checks the config for common mistakes.
 func (c *Config) Validate() error {
@@ -224,5 +253,53 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("framework %s: missing required field: key_field", fw.ID)
 		}
 	}
+	// Validate profiles
+	profSeen := make(map[string]bool)
+	for _, p := range c.Profiles {
+		if p.ID == "" {
+			return fmt.Errorf("profile missing required field: id")
+		}
+		if profSeen[p.ID] {
+			return fmt.Errorf("duplicate profile id: %s", p.ID)
+		}
+		profSeen[p.ID] = true
+	}
+	for _, p := range c.Profiles {
+		if p.Inherits != "" && !profSeen[p.Inherits] {
+			return fmt.Errorf("profile %s: inherits unknown profile %q", p.ID, p.Inherits)
+		}
+	}
 	return nil
+}
+
+// DefaultProfile returns the ID of the default profile, or "" if no profiles are defined.
+func (c *Config) DefaultProfile() string {
+	for _, p := range c.Profiles {
+		if p.Default {
+			return p.ID
+		}
+	}
+	if len(c.Profiles) > 0 {
+		return c.Profiles[0].ID
+	}
+	return ""
+}
+
+// ProfileIDs returns the list of all configured profile IDs.
+func (c *Config) ProfileIDs() []string {
+	ids := make([]string, len(c.Profiles))
+	for i, p := range c.Profiles {
+		ids[i] = p.ID
+	}
+	return ids
+}
+
+// HasProfile reports whether a profile with the given ID is configured.
+func (c *Config) HasProfile(id string) bool {
+	for _, p := range c.Profiles {
+		if p.ID == id {
+			return true
+		}
+	}
+	return false
 }

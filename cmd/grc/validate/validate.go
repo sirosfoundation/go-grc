@@ -12,6 +12,7 @@ import (
 	"github.com/sirosfoundation/go-grc/pkg/catalog"
 	"github.com/sirosfoundation/go-grc/pkg/config"
 	"github.com/sirosfoundation/go-grc/pkg/mapping"
+	"github.com/sirosfoundation/go-grc/pkg/risk"
 )
 
 func NewCommand() *cobra.Command {
@@ -168,6 +169,56 @@ func run(root string) error {
 	for id := range cat.Controls {
 		if !referencedControls[id] {
 			warnings = append(warnings, fmt.Sprintf("control %s: orphan — not referenced by any finding or framework mapping", id))
+		}
+	}
+
+	// Validate risk register
+	risks, riskErr := risk.Load(cfg.RiskDir, cfg.RiskRegister.Files)
+	if riskErr != nil {
+		add(fmt.Sprintf("risk register: %s", riskErr))
+	} else if risks != nil {
+		for _, file := range risks.Files {
+			for _, r := range file.Data.Risks {
+				if !risk.ValidStatuses[r.Status] {
+					add(fmt.Sprintf("risk %s: invalid status %q", r.ID, r.Status))
+				}
+				if _, ok := audits.FindingsByID[r.Finding]; !ok {
+					add(fmt.Sprintf("risk %s: references unknown finding %q", r.ID, r.Finding))
+				}
+				if r.Decision.Date == "" {
+					add(fmt.Sprintf("risk %s: missing decision date", r.ID))
+				}
+				if r.Decision.Reviewer == "" {
+					add(fmt.Sprintf("risk %s: missing decision reviewer", r.ID))
+				}
+				for _, p := range r.Profiles {
+					if !cfg.HasProfile(p) {
+						add(fmt.Sprintf("risk %s: references unknown profile %q", r.ID, p))
+					}
+				}
+			}
+			if risk.IsOverdueRegister(file.Data.Register) {
+				warnings = append(warnings, fmt.Sprintf("risk register %s: review overdue (next_review: %s)",
+					file.Data.Register.ID, file.Data.Register.NextReview))
+			}
+		}
+		// Every accepted finding must have a risk entry
+		for _, ref := range audits.FindingsByID {
+			if ref.Finding.Status == audit.StatusAccepted {
+				if _, ok := risks.RisksByFinding[ref.Finding.ID]; !ok {
+					add(fmt.Sprintf("finding %s: status is 'accepted' but no risk register entry exists", ref.Finding.ID))
+				}
+			}
+		}
+		// Validate finding profile overrides reference valid profiles
+		for _, file := range audits.Files {
+			for _, f := range file.Data.Findings {
+				for pid := range f.Profiles {
+					if !cfg.HasProfile(pid) {
+						add(fmt.Sprintf("finding %s: profile override references unknown profile %q", f.ID, pid))
+					}
+				}
+			}
 		}
 	}
 

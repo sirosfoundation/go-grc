@@ -34,16 +34,21 @@ func EffectiveStatus(ctrl *Control) string {
 }
 
 func deriveFromFindings(findings []*audit.FindingRef) string {
+	return deriveFromFindingsForProfile(findings, "")
+}
+
+func deriveFromFindingsForProfile(findings []*audit.FindingRef, profile string) string {
 	allTerminal, allEvidence, anyActive := true, true, false
 	for _, fref := range findings {
 		f := fref.Finding
-		if !f.IsTerminal() {
+		if !f.IsTerminalForProfile(profile) {
 			allTerminal = false
 		}
-		if !f.HasEvidence() {
+		if len(f.EvidenceForProfile(profile)) == 0 {
 			allEvidence = false
 		}
-		if f.IsActive() {
+		s := f.StatusForProfile(profile)
+		if s == audit.StatusInProgress {
 			anyActive = true
 		}
 	}
@@ -56,5 +61,22 @@ func deriveFromFindings(findings []*audit.FindingRef) string {
 		return ControlInProgress
 	default:
 		return ControlToDo
+	}
+}
+
+// DeriveControlStatusesForProfile populates DerivedStatus using profile-specific
+// finding statuses and evidence.
+func DeriveControlStatusesForProfile(cat *Catalog, audits *audit.AuditSet, profile string) {
+	for id, ctrl := range cat.Controls {
+		findings := audits.FindingsByControl[id]
+		if len(findings) == 0 {
+			continue
+		}
+		derived := deriveFromFindingsForProfile(findings, profile)
+		if derived != ctrl.Status {
+			ctrl.DerivedStatus = derived
+		} else {
+			ctrl.DerivedStatus = ""
+		}
 	}
 }

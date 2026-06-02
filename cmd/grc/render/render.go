@@ -14,6 +14,7 @@ import (
 	"github.com/sirosfoundation/go-grc/pkg/catalog"
 	"github.com/sirosfoundation/go-grc/pkg/config"
 	"github.com/sirosfoundation/go-grc/pkg/mapping"
+	"github.com/sirosfoundation/go-grc/pkg/risk"
 )
 
 // titleCase returns s with the first letter upper-cased (ASCII-only, sufficient
@@ -162,6 +163,20 @@ func run(root, profile string) error {
 			return err
 		}
 	}
+	// Risk register (private only, if configured and not public)
+	if !isPublic && !cfg.RiskRegister.Public && cfg.RiskDir != "" {
+		risks, err := risk.Load(cfg.RiskDir, cfg.RiskRegister.Files)
+		if err != nil {
+			cfg.SiteDir = origSiteDir
+			return fmt.Errorf("loading risk register: %w", err)
+		}
+		if len(risks.Files) > 0 {
+			if err := generateRiskRegister(cfg, risks); err != nil {
+				cfg.SiteDir = origSiteDir
+				return err
+			}
+		}
+	}
 	// Landing page
 	if err := generateLanding(cfg, cat, activeFindings, isPublic); err != nil {
 		cfg.SiteDir = origSiteDir
@@ -174,6 +189,9 @@ func run(root, profile string) error {
 	subdirs := []string{"controls", "frameworks"}
 	if !isPublic {
 		subdirs = append(subdirs, "findings")
+		if !cfg.RiskRegister.Public && cfg.RiskDir != "" {
+			subdirs = append(subdirs, "risk-register")
+		}
 	}
 	for _, subdir := range subdirs {
 		dst := filepath.Join(cfg.SiteDir, subdir)
