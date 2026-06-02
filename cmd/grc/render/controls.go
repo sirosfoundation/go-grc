@@ -13,17 +13,23 @@ import (
 
 func generateControls(cfg *config.Config, cat *catalog.Catalog, audits *audit.AuditSet, activeFindings []*audit.Finding, frameworkRefs map[string]map[string][]string, isPublic bool) error {
 	dir := filepath.Join(cfg.SiteDir, "controls")
-	writePage(filepath.Join(dir, "index.md"), renderControlIndex(cat, isPublic))
+	if err := writePage(filepath.Join(dir, "index.md"), renderControlIndex(cat, isPublic)); err != nil {
+		return err
+	}
 
 	for _, group := range cat.Groups {
 		kind := groupKind(group)
 		catDir := filepath.Join(dir, kind)
-		writePage(filepath.Join(catDir, "_category_.json"), categoryJSON(kindLabel(kind)+" Controls", kindPosition(kind)))
+		if err := writePage(filepath.Join(catDir, "_category_.json"), categoryJSON(kindLabel(kind)+" Controls", kindPosition(kind))); err != nil {
+			return err
+		}
 
 		for _, ctrl := range group.Controls {
 			slug := idSlug(ctrl.ID)
 			page := renderControlPage(ctrl, group.Title, kind, audits, activeFindings, frameworkRefs, cfg, isPublic)
-			writePage(filepath.Join(catDir, slug+".md"), page)
+			if err := writePage(filepath.Join(catDir, slug+".md"), page); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

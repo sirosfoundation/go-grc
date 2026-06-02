@@ -6,8 +6,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/sirosfoundation/go-grc/pkg/audit"
 	"gopkg.in/yaml.v3"
+
+	"github.com/sirosfoundation/go-grc/pkg/audit"
 )
 
 // Risk status constants.

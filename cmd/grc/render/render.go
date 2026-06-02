@@ -136,7 +136,7 @@ func run(root, profile string) error {
 	if err != nil {
 		return fmt.Errorf("creating staging dir: %w", err)
 	}
-	defer os.RemoveAll(stagingDir) // clean up on error
+	defer func() { _ = os.RemoveAll(stagingDir) }() // clean up on error
 
 	origSiteDir := cfg.SiteDir
 	cfg.SiteDir = stagingDir
@@ -200,25 +200,25 @@ func run(root, profile string) error {
 			continue
 		}
 		old := dst + ".old"
-		os.RemoveAll(old)
-		os.Rename(dst, old) // move current out of the way
+		_ = os.RemoveAll(old)
+		_ = os.Rename(dst, old) // move current out of the way
 		if err := os.Rename(src, dst); err != nil {
-			os.Rename(old, dst) // rollback on failure
+			_ = os.Rename(old, dst) // rollback on failure
 			return fmt.Errorf("swapping %s: %w", subdir, err)
 		}
-		os.RemoveAll(old) // clean up previous version
+		_ = os.RemoveAll(old) // clean up previous version
 	}
 	// Swap top-level files
 	for _, fname := range []string{"index.md", "csf.md"} {
 		srcFile := filepath.Join(stagingDir, fname)
 		dstFile := filepath.Join(cfg.SiteDir, fname)
 		if _, err := os.Stat(srcFile); err == nil {
-			os.Rename(dstFile, dstFile+".old")
+			_ = os.Rename(dstFile, dstFile+".old")
 			if err := os.Rename(srcFile, dstFile); err != nil {
-				os.Rename(dstFile+".old", dstFile)
+				_ = os.Rename(dstFile+".old", dstFile)
 				return fmt.Errorf("swapping %s: %w", fname, err)
 			}
-			os.RemoveAll(dstFile + ".old")
+			_ = os.RemoveAll(dstFile + ".old")
 		}
 	}
 
@@ -392,7 +392,7 @@ export default sidebars;
 
 	if isPublic {
 		findingsDir := filepath.Join(cfg.SiteDir, "docs", "findings")
-		os.RemoveAll(findingsDir)
+		_ = os.RemoveAll(findingsDir)
 	}
 
 	return nil

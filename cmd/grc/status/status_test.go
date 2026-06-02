@@ -5,8 +5,9 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/sirosfoundation/go-grc/cmd/grc/status"
 	"github.com/spf13/cobra"
+
+	"github.com/sirosfoundation/go-grc/cmd/grc/status"
 )
 
 func testdataDir() string {

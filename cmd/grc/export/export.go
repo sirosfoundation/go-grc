@@ -54,8 +54,8 @@ type EvidenceExport struct {
 }
 
 type FrameworkExport struct {
-	ID      string                `json:"id"`
-	Name    string                `json:"name"`
+	ID      string                 `json:"id"`
+	Name    string                 `json:"name"`
 	Entries []FrameworkEntryExport `json:"entries"`
 }
 
@@ -81,9 +81,9 @@ func NewCommand() *cobra.Command {
 
 func run(root, outputDir string) error {
 	cfg, err := config.New(root)
-if err != nil {
-return fmt.Errorf("loading config: %w", err)
-}
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
 
 	cat, err := catalog.Load(cfg.CatalogDir, cfg.CatalogSubdirs...)
 	if err != nil {
