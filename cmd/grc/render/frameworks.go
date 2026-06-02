@@ -13,8 +13,12 @@ import (
 
 func generateFrameworks(cfg *config.Config, cat *catalog.Catalog, maps mapping.Mappings, audits *audit.AuditSet, activeFindings []*audit.Finding, fwCats map[string]*catalog.FrameworkCatalog, isPublic bool) error {
 	fwDir := filepath.Join(cfg.SiteDir, "frameworks")
-	writePage(filepath.Join(fwDir, "index.md"), renderFrameworkIndex(cfg.Frameworks, maps))
-	writePage(filepath.Join(fwDir, "_category_.json"), categoryJSON("Frameworks", 2))
+	if err := writePage(filepath.Join(fwDir, "index.md"), renderFrameworkIndex(cfg.Frameworks, maps)); err != nil {
+		return err
+	}
+	if err := writePage(filepath.Join(fwDir, "_category_.json"), categoryJSON("Frameworks", 2)); err != nil {
+		return err
+	}
 
 	for _, fw := range cfg.Frameworks {
 		fm := maps[fw.ID]
@@ -68,9 +72,13 @@ func generateFramework(cfg *config.Config, fw config.FrameworkConfig, fm *mappin
 	dir := filepath.Join(cfg.SiteDir, "frameworks", fw.Slug)
 	catLabel := fw.Name
 	pos := fw.SidebarPosition + 1
-	writePage(filepath.Join(dir, "_category_.json"),
-		fmt.Sprintf(`{"label":%q,"position":%d,"link":{"type":"doc","id":"frameworks/%s/index"}}`, catLabel, pos, fw.Slug)+"\n")
-	writePage(filepath.Join(dir, "index.md"), renderFrameworkSummary(fw, fm, fwCat, isPublic))
+	if err := writePage(filepath.Join(dir, "_category_.json"),
+		fmt.Sprintf(`{"label":%q,"position":%d,"link":{"type":"doc","id":"frameworks/%s/index"}}`, catLabel, pos, fw.Slug)+"\n"); err != nil {
+		return err
+	}
+	if err := writePage(filepath.Join(dir, "index.md"), renderFrameworkSummary(fw, fm, fwCat, isPublic)); err != nil {
+		return err
+	}
 
 	for _, e := range fm.Entries {
 		slug := entrySlug(e.Key)
@@ -94,7 +102,9 @@ func generateFramework(cfg *config.Config, fw config.FrameworkConfig, fm *mappin
 			notes:       notes,
 			controls:    e.Controls,
 		}, rc, fw.ID, cat, activeFindings, isPublic)
-		writePage(filepath.Join(dir, slug+".md"), page)
+		if err := writePage(filepath.Join(dir, slug+".md"), page); err != nil {
+			return err
+		}
 	}
 	fmt.Printf("  %d %s pages\n", len(fm.Entries), fw.Name)
 	return nil

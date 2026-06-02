@@ -111,3 +111,158 @@ func TestApplyDefaults(t *testing.T) {
 		t.Errorf("expected default derive_mode 'coverage', got %q", fw.DeriveMode)
 	}
 }
+
+func TestNew_AllDirectoryOverrides(t *testing.T) {
+	dir := t.TempDir()
+	yaml := `project:
+  name: "Override Test"
+  repo: "org/repo"
+  url: "https://example.com"
+catalog:
+  dir: "my-catalog"
+  subdirs: ["a", "b"]
+  frameworks_subdir: "my-frameworks"
+mappings:
+  dir: "my-mappings"
+audits:
+  dir: "my-audits"
+site:
+  dir: "my-site"
+oscal:
+  dir: "my-oscal"
+frameworks:
+  - id: test
+    name: "Test"
+    key_field: id
+    mapping_file: test.yaml
+    catalog_file: test.yaml
+risk_register:
+  dir: "my-risks"
+  files: ["r.yaml"]
+`
+	if err := os.WriteFile(filepath.Join(dir, ".grc.yaml"), []byte(yaml), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := New(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Project.Name != "Override Test" {
+		t.Errorf("name: got %q", cfg.Project.Name)
+	}
+	if cfg.Project.Repo != "org/repo" {
+		t.Errorf("repo: got %q", cfg.Project.Repo)
+	}
+	if cfg.Project.URL != "https://example.com" {
+		t.Errorf("url: got %q", cfg.Project.URL)
+	}
+	if cfg.CatalogDir != filepath.Join(dir, "my-catalog") {
+		t.Errorf("catalog dir: got %q", cfg.CatalogDir)
+	}
+	if len(cfg.CatalogSubdirs) != 2 {
+		t.Errorf("catalog subdirs: got %v", cfg.CatalogSubdirs)
+	}
+	if cfg.FrameworksSubdir != "my-frameworks" {
+		t.Errorf("frameworks subdir: got %q", cfg.FrameworksSubdir)
+	}
+	if cfg.MappingsDir != filepath.Join(dir, "my-mappings") {
+		t.Errorf("mappings dir: got %q", cfg.MappingsDir)
+	}
+	if cfg.AuditsDir != filepath.Join(dir, "my-audits") {
+		t.Errorf("audits dir: got %q", cfg.AuditsDir)
+	}
+	if cfg.SiteDir != filepath.Join(dir, "my-site") {
+		t.Errorf("site dir: got %q", cfg.SiteDir)
+	}
+	if cfg.OSCALDir != filepath.Join(dir, "my-oscal") {
+		t.Errorf("oscal dir: got %q", cfg.OSCALDir)
+	}
+	if cfg.RiskDir != filepath.Join(dir, "my-risks") {
+		t.Errorf("risk dir: got %q", cfg.RiskDir)
+	}
+}
+
+func TestNew_Profiles(t *testing.T) {
+	dir := t.TempDir()
+	yaml := `profiles:
+  - id: native_only
+    label: "Native Only"
+    default: true
+  - id: web
+    label: "Web"
+    inherits: native_only
+frameworks:
+  - id: test
+    name: "Test"
+    key_field: id
+    mapping_file: test.yaml
+    catalog_file: test.yaml
+`
+	if err := os.WriteFile(filepath.Join(dir, ".grc.yaml"), []byte(yaml), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := New(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.DefaultProfile() != "native_only" {
+		t.Errorf("default profile: got %q", cfg.DefaultProfile())
+	}
+	ids := cfg.ProfileIDs()
+	if len(ids) != 2 {
+		t.Fatalf("expected 2 profiles, got %d", len(ids))
+	}
+	if !cfg.HasProfile("native_only") {
+		t.Error("HasProfile(native_only) should be true")
+	}
+	if cfg.HasProfile("nonexistent") {
+		t.Error("HasProfile(nonexistent) should be false")
+	}
+}
+
+func TestNew_DuplicateProfileID(t *testing.T) {
+	dir := t.TempDir()
+	yaml := `profiles:
+  - id: dupe
+    label: "A"
+  - id: dupe
+    label: "B"
+`
+	if err := os.WriteFile(filepath.Join(dir, ".grc.yaml"), []byte(yaml), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := New(dir)
+	if err == nil {
+		t.Fatal("expected error for duplicate profile ID")
+	}
+}
+
+func TestNew_ProfileInheritsUnknown(t *testing.T) {
+	dir := t.TempDir()
+	yaml := `profiles:
+  - id: child
+    label: "Child"
+    inherits: nonexistent
+`
+	if err := os.WriteFile(filepath.Join(dir, ".grc.yaml"), []byte(yaml), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := New(dir)
+	if err == nil {
+		t.Fatal("expected error for inherits unknown profile")
+	}
+}
+
+func TestDefaultProfile_NoProfiles(t *testing.T) {
+	cfg := &Config{}
+	if cfg.DefaultProfile() != "" {
+		t.Error("expected empty default profile when no profiles defined")
+	}
+}
+
+func TestDefaultProfile_NoDefault(t *testing.T) {
+	cfg := &Config{Profiles: []ProfileConfig{{ID: "a"}, {ID: "b"}}}
+	if cfg.DefaultProfile() != "a" {
+		t.Errorf("expected first profile 'a' as default, got %q", cfg.DefaultProfile())
+	}
+}

@@ -11,13 +11,19 @@ import (
 
 func generateRiskRegister(cfg *config.Config, risks *risk.RiskSet) error {
 	dir := filepath.Join(cfg.SiteDir, "risk-register")
-	writePage(filepath.Join(dir, "_category_.json"), categoryJSON("Risk Register", 7))
-	writePage(filepath.Join(dir, "index.md"), renderRiskIndex(risks))
+	if err := writePage(filepath.Join(dir, "_category_.json"), categoryJSON("Risk Register", 7)); err != nil {
+		return err
+	}
+	if err := writePage(filepath.Join(dir, "index.md"), renderRiskIndex(risks)); err != nil {
+		return err
+	}
 
 	for _, file := range risks.Files {
 		for _, r := range file.Data.Risks {
 			slug := idSlug(r.ID)
-			writePage(filepath.Join(dir, slug+".md"), renderRiskPage(&r, file.Data.Register.Owner))
+			if err := writePage(filepath.Join(dir, slug+".md"), renderRiskPage(&r, file.Data.Register.Owner)); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

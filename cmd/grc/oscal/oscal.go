@@ -62,10 +62,10 @@ type Component struct {
 }
 
 type ControlImplementation struct {
-	UUID                     string                    `json:"uuid"`
-	Source                   string                    `json:"source"`
-	Description              string                    `json:"description"`
-	ImplementedRequirements  []ImplementedRequirement  `json:"implemented-requirements"`
+	UUID                    string                   `json:"uuid"`
+	Source                  string                   `json:"source"`
+	Description             string                   `json:"description"`
+	ImplementedRequirements []ImplementedRequirement `json:"implemented-requirements"`
 }
 
 type ImplementedRequirement struct {
@@ -222,7 +222,7 @@ func run(root string) error {
 
 	out, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
-		return fmt.Errorf("marshalling OSCAL: %w", err)
+		return fmt.Errorf("marshaling OSCAL: %w", err)
 	}
 
 	outPath := filepath.Join(cfg.OSCALDir, "component-definition.json")

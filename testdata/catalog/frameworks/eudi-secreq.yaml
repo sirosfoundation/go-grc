@@ -1,1 +1,10 @@
-controls: []
+framework:
+  id: eudi
+  title: "EUDI Security Requirements"
+  version: "0.5"
+  source: "ENISA"
+requirements:
+  - id: WTE_07
+    title: "Session management"
+    section: "5.1"
+    description: "The wallet shall implement session timeout."

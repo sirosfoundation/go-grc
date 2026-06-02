@@ -5,8 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sirosfoundation/go-grc/cmd/grc/initialize"
 	"github.com/spf13/cobra"
+
+	"github.com/sirosfoundation/go-grc/cmd/grc/initialize"
 )
 
 func TestInitCommand(t *testing.T) {

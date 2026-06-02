@@ -9,8 +9,9 @@ import (
 	"runtime"
 	"testing"
 
-	riskcmd "github.com/sirosfoundation/go-grc/cmd/grc/risk"
 	"github.com/spf13/cobra"
+
+	riskcmd "github.com/sirosfoundation/go-grc/cmd/grc/risk"
 )
 
 func testdataDir() string {

@@ -11,12 +11,18 @@ import (
 
 func generateFindings(cfg *config.Config, audits *audit.AuditSet, activeFindings []*audit.Finding) error {
 	dir := filepath.Join(cfg.SiteDir, "findings")
-	writePage(filepath.Join(dir, "_category_.json"), categoryJSON("Findings", 3))
-	writePage(filepath.Join(dir, "index.md"), renderFindingsIndex(activeFindings))
+	if err := writePage(filepath.Join(dir, "_category_.json"), categoryJSON("Findings", 3)); err != nil {
+		return err
+	}
+	if err := writePage(filepath.Join(dir, "index.md"), renderFindingsIndex(activeFindings)); err != nil {
+		return err
+	}
 
 	for _, f := range activeFindings {
 		slug := idSlug(f.ID)
-		writePage(filepath.Join(dir, slug+".md"), renderFindingPage(f, cfg))
+		if err := writePage(filepath.Join(dir, slug+".md"), renderFindingPage(f, cfg)); err != nil {
+			return err
+		}
 	}
 	return nil
 }

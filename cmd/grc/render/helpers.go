@@ -192,14 +192,6 @@ func findingLink(f *audit.Finding) string {
 	return "`" + f.ID + "`"
 }
 
-func truncate(s string, n int) string {
-	s = strings.TrimSpace(s)
-	if len(s) <= n {
-		return s
-	}
-	return s[:n-3] + "..."
-}
-
 // --- Framework reverse index (generic) ---
 
 func buildFrameworkRefs(maps mapping.Mappings) map[string]map[string][]string {

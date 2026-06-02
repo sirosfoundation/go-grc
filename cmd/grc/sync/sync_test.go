@@ -7,9 +7,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/sirosfoundation/go-grc/pkg/audit"
 	ghpkg "github.com/sirosfoundation/go-grc/pkg/github"
-	"github.com/spf13/cobra"
 )
 
 func testdataDir() string {

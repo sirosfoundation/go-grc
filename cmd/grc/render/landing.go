@@ -58,8 +58,8 @@ The functions organize cybersecurity outcomes at the highest level.
 	b.WriteString("```mermaid\nflowchart LR\n")
 	for _, fn := range csfFunctions {
 		upper := strings.ToUpper(fn.ID)
-		b.WriteString(fmt.Sprintf("  %s[\"%s\"]\n", upper, fn.Name))
-		b.WriteString(fmt.Sprintf("  style %s fill:%s,color:#fff,stroke:none\n", upper, fn.Color))
+		fmt.Fprintf(&b, "  %s[\"%s\"]\n", upper, fn.Name)
+		fmt.Fprintf(&b, "  style %s fill:%s,color:#fff,stroke:none\n", upper, fn.Color)
 	}
 	b.WriteString("  GOVERN --> IDENTIFY --> PROTECT --> DETECT --> RESPOND --> RECOVER\n")
 	b.WriteString("```\n\n")
@@ -121,7 +121,7 @@ func renderComplianceOverview(cfg *config.Config, cat *catalog.Catalog) string {
 	var b strings.Builder
 	b.WriteString("\n## How It Fits Together\n\n")
 	b.WriteString("Compliance frameworks define **requirements** that are mapped to\n")
-	b.WriteString("platform **controls**.  Each control is categorised under a\n")
+	b.WriteString("platform **controls**.  Each control is categorized under a\n")
 	b.WriteString("[NIST CSF 2.0](/csf) function so that coverage can be reviewed\n")
 	b.WriteString("at every level of abstraction.\n\n")
 
@@ -229,18 +229,18 @@ func renderComplianceOverview(cfg *config.Config, cat *catalog.Catalog) string {
 	}
 
 	labelX2 := (arrowXStart2 + arrowXEnd2) / 2
-	fmt.Fprintf(&b, "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-size=\"10\" fill=\"#64748b\" font-style=\"italic\">categorised</text>\n", labelX2, labelY)
+	fmt.Fprintf(&b, "<text x=\"%d\" y=\"%d\" text-anchor=\"middle\" font-size=\"10\" fill=\"#64748b\" font-style=\"italic\">categorized</text>\n", labelX2, labelY)
 
 	b.WriteString("</svg>\n\n")
 
 	b.WriteString("## Platform vs Operator\n\n")
-	b.WriteString("Each control is labelled **platform** or **operator**:\n\n")
+	b.WriteString("Each control is labeled **platform** or **operator**:\n\n")
 	b.WriteString("- **Platform** controls apply to the open-source SIROS\u00a0ID codebase itself \u2014\n")
 	b.WriteString("  they are satisfied by the software and verified through code, tests, and audits.\n")
-	b.WriteString("- **Operator** controls apply to the organisation running the platform \u2014\n")
+	b.WriteString("- **Operator** controls apply to the organization running the platform \u2014\n")
 	b.WriteString("  policies, processes, and infrastructure that each deployment must provide independently.\n\n")
 	b.WriteString("This separation reflects the fact that SIROS\u00a0ID is designed to be operated\n")
-	b.WriteString("not only by the SIROS Foundation but by any organisation independently.\n\n")
+	b.WriteString("not only by the SIROS Foundation but by any organization independently.\n\n")
 
 	return b.String()
 }
