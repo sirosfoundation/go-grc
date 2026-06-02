@@ -46,3 +46,29 @@ findings:
       - "SEC-KEY-01"
       - "GOV-POL-01"
     description: "Signing keys have no rotation schedule."
+  - id: "F-004"
+    title: "Browser storage exposure"
+    severity: "medium"
+    status: "accepted"
+    owner: "wallet-frontend"
+    controls:
+      - "SEC-WEB-01"
+    description: "Session token stored in sessionStorage."
+    profiles:
+      native_only:
+        status: "resolved"
+        severity: "low"
+        resolved_date: "2026-06-01"
+        evidence:
+          - type: "control_verified"
+            ref: "Native app uses TEE"
+            description: "Native app stores tokens in secure enclave"
+            collected_at: "2026-06-01"
+    tracking_issue:
+      repo: "sirosfoundation/compliance"
+      number: 4
+    evidence:
+      - type: "document"
+        ref: "risk-register/platform.yaml"
+        description: "Risk accepted with compensating controls"
+        collected_at: "2026-06-01"

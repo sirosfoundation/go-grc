@@ -24,8 +24,8 @@ func TestLoad(t *testing.T) {
 		t.Fatalf("expected 1 file, got %d", len(set.Files))
 	}
 
-	if len(set.FindingsByID) != 3 {
-		t.Errorf("expected 3 findings, got %d", len(set.FindingsByID))
+	if len(set.FindingsByID) != 4 {
+		t.Errorf("expected 4 findings, got %d", len(set.FindingsByID))
 	}
 
 	// Check specific finding
@@ -109,8 +109,8 @@ func TestSave(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Re-load error: %v", err)
 	}
-	if len(set2.FindingsByID) != 3 {
-		t.Errorf("expected 3 findings after round-trip, got %d", len(set2.FindingsByID))
+	if len(set2.FindingsByID) != 4 {
+		t.Errorf("expected 4 findings after round-trip, got %d", len(set2.FindingsByID))
 	}
 }
 

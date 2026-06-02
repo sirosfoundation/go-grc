@@ -41,3 +41,31 @@ func TestStatusCommand_JSON(t *testing.T) {
 		t.Fatalf("status --format json failed: %v", err)
 	}
 }
+
+func TestStatusCommand_Profile(t *testing.T) {
+	root := testdataDir()
+
+	cmd := status.NewCommand()
+	parent := &cobra.Command{Use: "grc"}
+	parent.PersistentFlags().String("root", root, "root")
+	parent.AddCommand(cmd)
+
+	parent.SetArgs([]string{"status", "--profile", "native_only"})
+	if err := parent.Execute(); err != nil {
+		t.Fatalf("status --profile native_only failed: %v", err)
+	}
+}
+
+func TestStatusCommand_InvalidProfile(t *testing.T) {
+	root := testdataDir()
+
+	cmd := status.NewCommand()
+	parent := &cobra.Command{Use: "grc"}
+	parent.PersistentFlags().String("root", root, "root")
+	parent.AddCommand(cmd)
+
+	parent.SetArgs([]string{"status", "--profile", "nonexistent"})
+	if err := parent.Execute(); err == nil {
+		t.Fatal("expected error for unknown profile")
+	}
+}

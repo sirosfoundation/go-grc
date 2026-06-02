@@ -136,3 +136,50 @@ risks:
 		t.Fatal("expected error for duplicate risk ID")
 	}
 }
+
+func TestLoadInvalidYAML(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "bad.yaml"), []byte(":::invalid"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load(dir, []string{"bad.yaml"})
+	if err == nil {
+		t.Fatal("expected error for invalid YAML")
+	}
+}
+
+func TestLoadUnreadableFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "noperm.yaml")
+	if err := os.WriteFile(path, []byte("test"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	os.Chmod(path, 0000)
+	defer os.Chmod(path, 0644)
+
+	_, err := Load(dir, []string{"noperm.yaml"})
+	if err == nil {
+		t.Fatal("expected error for unreadable file")
+	}
+}
+
+func TestIsOverdueRegister(t *testing.T) {
+	tests := []struct {
+		name       string
+		nextReview string
+		want       bool
+	}{
+		{"empty", "", false},
+		{"future", "2099-12-31", false},
+		{"past", "2020-01-01", true},
+		{"invalid", "not-a-date", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reg := RegisterHeader{NextReview: tt.nextReview}
+			if got := IsOverdueRegister(reg); got != tt.want {
+				t.Errorf("IsOverdueRegister(%q) = %v, want %v", tt.nextReview, got, tt.want)
+			}
+		})
+	}
+}
