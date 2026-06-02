@@ -10,27 +10,32 @@ import (
 	"github.com/sirosfoundation/go-grc/pkg/audit"
 	"github.com/sirosfoundation/go-grc/pkg/catalog"
 	"github.com/sirosfoundation/go-grc/pkg/config"
+	"github.com/sirosfoundation/go-grc/pkg/risk"
 )
 
 func NewCommand() *cobra.Command {
 	var format string
+	var profile string
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show compliance status overview (read-only)",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root, _ := cmd.Flags().GetString("root")
-			return run(root, format)
+			return run(root, format, profile)
 		},
 	}
 	cmd.Flags().StringVar(&format, "format", "text", `Output format: "text" or "json"`)
+	cmd.Flags().StringVar(&profile, "profile", "", "Deployment profile to report on (default: all profiles)")
 	return cmd
 }
 
 // StatusReport is the structured output of the status command.
 type StatusReport struct {
+	Profile  string          `json:"profile,omitempty"`
 	Findings FindingsSummary `json:"findings"`
 	Controls ControlsSummary `json:"controls"`
 	Audits   []AuditSummary  `json:"audits"`
+	Risks    RisksSummary    `json:"risks,omitempty"`
 }
 
 type FindingsSummary struct {
@@ -59,10 +64,20 @@ type AuditSummary struct {
 	Done       int    `json:"done"`
 }
 
-func run(root, format string) error {
+type RisksSummary struct {
+	Total    int `json:"total"`
+	Accepted int `json:"accepted"`
+	Overdue  int `json:"overdue"`
+}
+
+func run(root, format, profile string) error {
 	cfg, err := config.New(root)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
+	}
+
+	if profile != "" && !cfg.HasProfile(profile) {
+		return fmt.Errorf("unknown profile %q; available: %v", profile, cfg.ProfileIDs())
 	}
 
 	cat, err := catalog.Load(cfg.CatalogDir, cfg.CatalogSubdirs...)
@@ -75,7 +90,12 @@ func run(root, format string) error {
 		return fmt.Errorf("loading audits: %w", err)
 	}
 
-	report := collect(cat, audits)
+	risks, err := risk.Load(cfg.RiskDir, cfg.RiskRegister.Files)
+	if err != nil {
+		return fmt.Errorf("loading risk register: %w", err)
+	}
+
+	report := collect(cat, audits, risks, profile)
 
 	if format == "json" {
 		return writeJSON(report)
@@ -84,7 +104,7 @@ func run(root, format string) error {
 	return nil
 }
 
-func collect(cat *catalog.Catalog, audits *audit.AuditSet) StatusReport {
+func collect(cat *catalog.Catalog, audits *audit.AuditSet, risks *risk.RiskSet, profile string) StatusReport {
 	var fs FindingsSummary
 	for _, ref := range audits.FindingsByID {
 		fs.Total++
@@ -94,14 +114,15 @@ func collect(cat *catalog.Catalog, audits *audit.AuditSet) StatusReport {
 		} else {
 			fs.Untracked++
 		}
-		switch f.Status {
+		status := f.StatusForProfile(profile)
+		switch status {
 		case "open":
 			fs.Open++
 		case "in_progress":
 			fs.InProgress++
 		case "resolved":
 			fs.Resolved++
-			if f.HasEvidence() {
+			if len(f.EvidenceForProfile(profile)) > 0 {
 				fs.WithEvidence++
 			}
 		case "accepted":
@@ -127,7 +148,8 @@ func collect(cat *catalog.Catalog, audits *audit.AuditSet) StatusReport {
 		a := file.Data.Audit
 		s := AuditSummary{ID: a.ID, Total: len(file.Data.Findings)}
 		for _, f := range file.Data.Findings {
-			switch f.Status {
+			status := f.StatusForProfile(profile)
+			switch status {
 			case "open":
 				s.Open++
 			case "in_progress":
@@ -139,7 +161,23 @@ func collect(cat *catalog.Catalog, audits *audit.AuditSet) StatusReport {
 		as = append(as, s)
 	}
 
-	return StatusReport{Findings: fs, Controls: cs, Audits: as}
+	var rs RisksSummary
+	for _, file := range risks.Files {
+		if risk.IsOverdueRegister(file.Data.Register) {
+			rs.Overdue += len(file.Data.Risks)
+		}
+		for _, r := range file.Data.Risks {
+			if profile != "" && !r.AppliesToProfile(profile) {
+				continue
+			}
+			rs.Total++
+			if r.Status == risk.StatusAccepted {
+				rs.Accepted++
+			}
+		}
+	}
+
+	return StatusReport{Profile: profile, Findings: fs, Controls: cs, Audits: as, Risks: rs}
 }
 
 func writeJSON(report StatusReport) error {
@@ -149,6 +187,10 @@ func writeJSON(report StatusReport) error {
 }
 
 func writeText(report StatusReport) {
+	if report.Profile != "" {
+		fmt.Printf("Profile: %s\n\n", report.Profile)
+	}
+
 	fs := report.Findings
 	fmt.Printf("Findings: %d total\n", fs.Total)
 	fmt.Printf("  Open:          %d\n", fs.Open)
@@ -170,5 +212,15 @@ func writeText(report StatusReport) {
 	fmt.Println("-------------------------------------------------------")
 	for _, a := range report.Audits {
 		fmt.Printf("%-20s %5d %5d %5d %5d\n", a.ID, a.Total, a.Open, a.InProgress, a.Done)
+	}
+
+	if report.Risks.Total > 0 {
+		fmt.Println()
+		rs := report.Risks
+		fmt.Printf("Risk Register: %d total\n", rs.Total)
+		fmt.Printf("  Accepted:      %d\n", rs.Accepted)
+		if rs.Overdue > 0 {
+			fmt.Printf("  Overdue:       %d\n", rs.Overdue)
+		}
 	}
 }

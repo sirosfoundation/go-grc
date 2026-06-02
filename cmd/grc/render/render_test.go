@@ -67,3 +67,35 @@ func copyDir(src, dst string) error {
 		return os.WriteFile(target, data, info.Mode())
 	})
 }
+
+func TestRenderCommand_Private(t *testing.T) {
+	root := testdataDir()
+	tmpDir := t.TempDir()
+
+	if err := copyDir(root, tmpDir); err != nil {
+		t.Fatalf("copying testdata: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, "site", "docs"), 0755); err != nil {
+		t.Fatalf("creating site/docs dir: %v", err)
+	}
+
+	cmd := render.NewCommand()
+	parent := &cobra.Command{Use: "grc"}
+	parent.PersistentFlags().String("root", tmpDir, "root")
+	parent.AddCommand(cmd)
+
+	parent.SetArgs([]string{"render", "--profile", "private"})
+	if err := parent.Execute(); err != nil {
+		t.Fatalf("render --profile private failed: %v", err)
+	}
+
+	// Verify risk register was rendered
+	riskDir := filepath.Join(tmpDir, "site", "docs", "risk-register")
+	entries, err := os.ReadDir(riskDir)
+	if err != nil {
+		t.Fatalf("reading risk-register dir: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Error("render produced no risk register output files")
+	}
+}

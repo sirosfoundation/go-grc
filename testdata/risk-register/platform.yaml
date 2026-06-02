@@ -1,0 +1,28 @@
+risk_register:
+  id: platform
+  title: Platform Risk Register
+  owner: platform
+  last_review: "2026-06-01"
+  next_review: "2026-12-01"
+
+risks:
+  - id: RSK-P-001
+    finding: F-004
+    profiles: [full]
+    title: "Browser storage exposure"
+    severity: medium
+    residual_severity: low
+    status: accepted
+    description: "Session token stored in sessionStorage mitigated by CSP."
+    compensating_controls:
+      - "CSP script-src self"
+      - "Short session lifetime"
+    residual_risk: "Supply-chain attack vector only"
+    decision:
+      date: "2026-06-01"
+      rationale: "Mitigated by CSP and short session lifetime"
+      reviewer: "leifj"
+      review_interval: "quarterly"
+    tracking:
+      repo: "sirosfoundation/compliance"
+      number: 4

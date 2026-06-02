@@ -20,28 +20,30 @@ func NewCommand() *cobra.Command {
 		dryRun    bool
 		format    string
 		changelog string
+		profile   string
 	)
 	cmd := &cobra.Command{
 		Use:   "derive",
 		Short: "Derive control and mapping statuses from findings and evidence",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root, _ := cmd.Flags().GetString("root")
-			return run(root, dryRun, format, changelog)
+			return run(root, dryRun, format, changelog, profile)
 		},
 	}
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Show derived changes without writing")
 	cmd.Flags().StringVar(&format, "format", "text", `Output format: "text" or "json"`)
 	cmd.Flags().StringVar(&changelog, "changelog", "", "Append a changelog entry to this file")
+	cmd.Flags().StringVar(&profile, "profile", "", "Derive statuses for a specific deployment profile")
 	return cmd
 }
 
 // DeriveReport is the structured output for --format json.
 type DeriveReport struct {
-	Timestamp string            `json:"timestamp"`
-	DryRun    bool              `json:"dry_run"`
-	Controls  []Change          `json:"controls"`
+	Timestamp  string            `json:"timestamp"`
+	DryRun     bool              `json:"dry_run"`
+	Controls   []Change          `json:"controls"`
 	Frameworks []FrameworkChange `json:"frameworks"`
-	Total     int               `json:"total"`
+	Total      int               `json:"total"`
 }
 
 // Change records a single status transition.
@@ -66,10 +68,14 @@ type fwUpdate struct {
 	updates []update
 }
 
-func run(root string, dryRun bool, format, changelogPath string) error {
+func run(root string, dryRun bool, format, changelogPath, profile string) error {
 	cfg, err := config.New(root)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
+	}
+
+	if profile != "" && !cfg.HasProfile(profile) {
+		return fmt.Errorf("unknown profile %q; available: %v", profile, cfg.ProfileIDs())
 	}
 
 	cat, err := catalog.Load(cfg.CatalogDir, cfg.CatalogSubdirs...)
@@ -85,7 +91,7 @@ func run(root string, dryRun bool, format, changelogPath string) error {
 		return fmt.Errorf("loading mappings: %w", err)
 	}
 
-	cu := deriveControlStatuses(cat, audits)
+	cu := deriveControlStatuses(cat, audits, profile)
 
 	var fwUpdates []fwUpdate
 	for _, fw := range cfg.Frameworks {
@@ -181,14 +187,18 @@ func appendChangelog(path string, when time.Time, cu []update, fwUpdates []fwUpd
 	return err
 }
 
-func deriveControlStatuses(cat *catalog.Catalog, audits *audit.AuditSet) []update {
+func deriveControlStatuses(cat *catalog.Catalog, audits *audit.AuditSet, profile string) []update {
 	// Snapshot old statuses before derivation.
 	oldStatus := make(map[string]string, len(cat.Controls))
 	for id, ctrl := range cat.Controls {
 		oldStatus[id] = ctrl.Status
 	}
 
-	catalog.DeriveControlStatuses(cat, audits)
+	if profile != "" {
+		catalog.DeriveControlStatusesForProfile(cat, audits, profile)
+	} else {
+		catalog.DeriveControlStatuses(cat, audits)
+	}
 
 	var updates []update
 	for id, ctrl := range cat.Controls {

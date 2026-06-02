@@ -30,24 +30,33 @@ type Evidence struct {
 	CollectedAt string `yaml:"collected_at,omitempty"`
 }
 
+// ProfileOverride holds per-profile status and evidence overrides for a finding.
+type ProfileOverride struct {
+	Status       string     `yaml:"status,omitempty"`
+	Severity     string     `yaml:"severity,omitempty"`
+	Evidence     []Evidence `yaml:"evidence,omitempty"`
+	ResolvedDate string     `yaml:"resolved_date,omitempty"`
+}
+
 type Finding struct {
-	ID            string     `yaml:"id"`
-	Title         string     `yaml:"title"`
-	Severity      string     `yaml:"severity"`
-	Status        string     `yaml:"status"`
-	Owner         string     `yaml:"owner"`
-	Controls      []string   `yaml:"controls"`
-	Description   string     `yaml:"description"`
-	EUDIReqs      []string   `yaml:"eudi_reqs,omitempty"`
-	AnnexA        []string   `yaml:"annex_a,omitempty"`
-	GDPRItems     []string   `yaml:"gdpr_items,omitempty"`
-	ASVSSections  []string            `yaml:"asvs_sections,omitempty"`
-	FrameworkRefs map[string][]string `yaml:"framework_refs,omitempty"` // framework ID -> requirement IDs (generic)
-	TrackingIssue *IssueRef           `yaml:"tracking_issue,omitempty"`
-	Issues        []IssueRef `yaml:"issues,omitempty"`
-	PullRequests  []IssueRef `yaml:"pull_requests,omitempty"`
-	Evidence      []Evidence `yaml:"evidence,omitempty"`
-	ResolvedDate  string     `yaml:"resolved_date,omitempty"`
+	ID            string                     `yaml:"id"`
+	Title         string                     `yaml:"title"`
+	Severity      string                     `yaml:"severity"`
+	Status        string                     `yaml:"status"`
+	Owner         string                     `yaml:"owner"`
+	Controls      []string                   `yaml:"controls"`
+	Description   string                     `yaml:"description"`
+	EUDIReqs      []string                   `yaml:"eudi_reqs,omitempty"`
+	AnnexA        []string                   `yaml:"annex_a,omitempty"`
+	GDPRItems     []string                   `yaml:"gdpr_items,omitempty"`
+	ASVSSections  []string                   `yaml:"asvs_sections,omitempty"`
+	FrameworkRefs map[string][]string        `yaml:"framework_refs,omitempty"` // framework ID -> requirement IDs (generic)
+	TrackingIssue *IssueRef                  `yaml:"tracking_issue,omitempty"`
+	Issues        []IssueRef                 `yaml:"issues,omitempty"`
+	PullRequests  []IssueRef                 `yaml:"pull_requests,omitempty"`
+	Evidence      []Evidence                 `yaml:"evidence,omitempty"`
+	ResolvedDate  string                     `yaml:"resolved_date,omitempty"`
+	Profiles      map[string]ProfileOverride `yaml:"profiles,omitempty"`
 }
 
 type AuditFile struct {
@@ -136,7 +145,6 @@ func (f *Finding) AddEvidence(ev Evidence) {
 	f.Evidence = append(f.Evidence, ev)
 }
 
-
 // MatchesReq reports whether the finding references the given requirement
 // in the specified framework. Checks both the generic FrameworkRefs map
 // and the legacy per-framework fields for backward compatibility.
@@ -173,4 +181,55 @@ func (f *Finding) IsResolved() bool {
 
 func (f *Finding) HasEvidence() bool {
 	return len(f.Evidence) > 0
+}
+
+// StatusForProfile returns the effective status for the given profile.
+// An empty profile name returns the default (top-level) status.
+func (f *Finding) StatusForProfile(profile string) string {
+	if profile == "" {
+		return f.Status
+	}
+	if po, ok := f.Profiles[profile]; ok && po.Status != "" {
+		return po.Status
+	}
+	return f.Status
+}
+
+// SeverityForProfile returns the effective severity for the given profile.
+func (f *Finding) SeverityForProfile(profile string) string {
+	if profile == "" {
+		return f.Severity
+	}
+	if po, ok := f.Profiles[profile]; ok && po.Severity != "" {
+		return po.Severity
+	}
+	return f.Severity
+}
+
+// EvidenceForProfile returns the combined evidence for the given profile:
+// the base evidence plus any profile-specific evidence.
+func (f *Finding) EvidenceForProfile(profile string) []Evidence {
+	base := f.Evidence
+	if profile == "" {
+		return base
+	}
+	po, ok := f.Profiles[profile]
+	if !ok || len(po.Evidence) == 0 {
+		return base
+	}
+	combined := make([]Evidence, 0, len(base)+len(po.Evidence))
+	combined = append(combined, base...)
+	combined = append(combined, po.Evidence...)
+	return combined
+}
+
+// IsResolvedForProfile reports whether the finding is resolved in the given profile.
+func (f *Finding) IsResolvedForProfile(profile string) bool {
+	return f.StatusForProfile(profile) == StatusResolved
+}
+
+// IsTerminalForProfile reports whether the finding is in a terminal state for the profile.
+func (f *Finding) IsTerminalForProfile(profile string) bool {
+	s := f.StatusForProfile(profile)
+	return s == StatusResolved || s == StatusAccepted
 }

@@ -24,8 +24,8 @@ func TestLoad(t *testing.T) {
 		t.Fatalf("expected 1 file, got %d", len(set.Files))
 	}
 
-	if len(set.FindingsByID) != 3 {
-		t.Errorf("expected 3 findings, got %d", len(set.FindingsByID))
+	if len(set.FindingsByID) != 4 {
+		t.Errorf("expected 4 findings, got %d", len(set.FindingsByID))
 	}
 
 	// Check specific finding
@@ -109,8 +109,8 @@ func TestSave(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Re-load error: %v", err)
 	}
-	if len(set2.FindingsByID) != 3 {
-		t.Errorf("expected 3 findings after round-trip, got %d", len(set2.FindingsByID))
+	if len(set2.FindingsByID) != 4 {
+		t.Errorf("expected 4 findings after round-trip, got %d", len(set2.FindingsByID))
 	}
 }
 
@@ -223,5 +223,66 @@ func TestFinding_StatusHelpers(t *testing.T) {
 	}
 	if f.IsResolved() {
 		t.Error("accepted finding should not be resolved (IsResolved is for status==resolved only)")
+	}
+}
+
+func TestFinding_ProfileOverrides(t *testing.T) {
+	f := &audit.Finding{
+		ID:       "F-PROF",
+		Status:   "open",
+		Severity: "high",
+		Evidence: []audit.Evidence{
+			{Type: "document", Ref: "base-doc", Description: "base evidence"},
+		},
+		Profiles: map[string]audit.ProfileOverride{
+			"native_only": {
+				Status:   "resolved",
+				Severity: "low",
+				Evidence: []audit.Evidence{
+					{Type: "configuration", Ref: "app-attest", Description: "native attestation"},
+				},
+				ResolvedDate: "2026-06-02",
+			},
+		},
+	}
+
+	// Default profile (empty string) returns top-level values
+	if got := f.StatusForProfile(""); got != "open" {
+		t.Errorf("StatusForProfile('') = %q, want 'open'", got)
+	}
+	if got := f.SeverityForProfile(""); got != "high" {
+		t.Errorf("SeverityForProfile('') = %q, want 'high'", got)
+	}
+	if got := f.EvidenceForProfile(""); len(got) != 1 {
+		t.Errorf("EvidenceForProfile('') = %d items, want 1", len(got))
+	}
+
+	// native_only profile returns overridden values
+	if got := f.StatusForProfile("native_only"); got != "resolved" {
+		t.Errorf("StatusForProfile('native_only') = %q, want 'resolved'", got)
+	}
+	if got := f.SeverityForProfile("native_only"); got != "low" {
+		t.Errorf("SeverityForProfile('native_only') = %q, want 'low'", got)
+	}
+	// Evidence combines base + profile
+	ev := f.EvidenceForProfile("native_only")
+	if len(ev) != 2 {
+		t.Errorf("EvidenceForProfile('native_only') = %d items, want 2", len(ev))
+	}
+
+	// Unknown profile falls back to top-level
+	if got := f.StatusForProfile("unknown"); got != "open" {
+		t.Errorf("StatusForProfile('unknown') = %q, want 'open'", got)
+	}
+
+	// Terminal checks
+	if f.IsTerminalForProfile("") {
+		t.Error("should not be terminal for default profile")
+	}
+	if !f.IsTerminalForProfile("native_only") {
+		t.Error("should be terminal for native_only profile")
+	}
+	if !f.IsResolvedForProfile("native_only") {
+		t.Error("should be resolved for native_only profile")
 	}
 }

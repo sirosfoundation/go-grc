@@ -40,3 +40,19 @@ oscal:
 components:
   - name: "Test Service"
     repo: "test/service"
+
+profiles:
+  - id: full
+    name: "Full Deployment"
+    description: "All client types"
+    default: true
+  - id: native_only
+    name: "Native App Deployment"
+    description: "Native apps only"
+    inherits: full
+
+risk_register:
+  dir: risk-register
+  files:
+    - platform.yaml
+  public: false

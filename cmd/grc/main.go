@@ -11,6 +11,7 @@ import (
 	"github.com/sirosfoundation/go-grc/cmd/grc/initialize"
 	"github.com/sirosfoundation/go-grc/cmd/grc/oscal"
 	"github.com/sirosfoundation/go-grc/cmd/grc/render"
+	riskcmd "github.com/sirosfoundation/go-grc/cmd/grc/risk"
 	"github.com/sirosfoundation/go-grc/cmd/grc/status"
 	"github.com/sirosfoundation/go-grc/cmd/grc/sync"
 	"github.com/sirosfoundation/go-grc/cmd/grc/validate"
@@ -38,6 +39,7 @@ func main() {
 	rootCmd.AddCommand(oscal.NewCommand())
 	rootCmd.AddCommand(status.NewCommand())
 	rootCmd.AddCommand(validate.NewCommand())
+	rootCmd.AddCommand(riskcmd.NewCommand())
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
