@@ -58,6 +58,13 @@ type RiskRegisterConfig struct {
 	Public bool     `yaml:"public"` // whether to include in public site render
 }
 
+// YearCycleConfig holds configuration for the year-cycle calendar view.
+type YearCycleConfig struct {
+	Title  string `yaml:"title"`  // heading for the year-cycle page
+	Source string `yaml:"source"` // URL or local path to an iCal (.ics) feed
+	Public bool   `yaml:"public"` // whether to include in public site render
+}
+
 // ApplyDefaults fills in zero-value fields with sensible defaults.
 func (fw *FrameworkConfig) ApplyDefaults() {
 	if fw.ListKey == "" {
@@ -116,6 +123,7 @@ type GRCFile struct {
 	Components   []ComponentConfig  `yaml:"components"`
 	Profiles     []ProfileConfig    `yaml:"profiles"`
 	RiskRegister RiskRegisterConfig `yaml:"risk_register"`
+	YearCycle    YearCycleConfig    `yaml:"year_cycle"`
 }
 
 // Config holds the resolved runtime configuration.
@@ -133,6 +141,7 @@ type Config struct {
 	Components       []ComponentConfig
 	Profiles         []ProfileConfig
 	RiskRegister     RiskRegisterConfig
+	YearCycle        YearCycleConfig
 	CatalogSubdirs   []string
 	FrameworksSubdir string
 }
@@ -222,6 +231,9 @@ func New(root string) (*Config, error) {
 	if cfg.RiskRegister.Dir != "" {
 		cfg.RiskDir = filepath.Join(root, cfg.RiskRegister.Dir)
 	}
+
+	// Year cycle
+	cfg.YearCycle = grc.YearCycle
 
 	// Apply defaults to each framework config.
 	if len(cfg.Frameworks) == 0 {

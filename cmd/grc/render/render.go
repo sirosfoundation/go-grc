@@ -15,6 +15,7 @@ import (
 	"github.com/sirosfoundation/go-grc/pkg/config"
 	"github.com/sirosfoundation/go-grc/pkg/mapping"
 	"github.com/sirosfoundation/go-grc/pkg/risk"
+	"github.com/sirosfoundation/go-grc/pkg/yearcycle"
 )
 
 // titleCase returns s with the first letter upper-cased (ASCII-only, sufficient
@@ -48,6 +49,12 @@ var (
 )
 
 func run(root, profile string) error {
+	return Run(root, profile)
+}
+
+// Run executes the full site render. It is exported so that other commands
+// (e.g. serve) can trigger re-renders programmatically.
+func Run(root, profile string) error {
 	cfg, err := config.New(root)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
@@ -177,6 +184,18 @@ func run(root, profile string) error {
 			}
 		}
 	}
+	// Year cycle (if configured and visibility matches profile)
+	if cfg.YearCycle.Source != "" && (!isPublic || cfg.YearCycle.Public) {
+		yc, err := yearcycle.Load(cfg.YearCycle.Source, cfg.YearCycle.Title)
+		if err != nil {
+			cfg.SiteDir = origSiteDir
+			return fmt.Errorf("loading year cycle: %w", err)
+		}
+		if err := generateYearCycle(cfg, yc); err != nil {
+			cfg.SiteDir = origSiteDir
+			return err
+		}
+	}
 	// Landing page
 	if err := generateLanding(cfg, cat, activeFindings, isPublic); err != nil {
 		cfg.SiteDir = origSiteDir
@@ -192,6 +211,9 @@ func run(root, profile string) error {
 		if !cfg.RiskRegister.Public && cfg.RiskDir != "" {
 			subdirs = append(subdirs, "risk-register")
 		}
+	}
+	if cfg.YearCycle.Source != "" && (!isPublic || cfg.YearCycle.Public) {
+		subdirs = append(subdirs, "year-cycle")
 	}
 	for _, subdir := range subdirs {
 		dst := filepath.Join(cfg.SiteDir, subdir)
