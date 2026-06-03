@@ -52,18 +52,16 @@ dockers:
   - image_templates:
       - "ghcr.io/sirosfoundation/go-grc:{{ .Version }}-amd64"
     use: buildx
+    dockerfile: Dockerfile.goreleaser
     build_flag_templates:
       - "--platform=linux/amd64"
-      - "--build-arg=VERSION={{ .Version }}"
-      - "--build-arg=BUILD_TIME={{ .Date }}"
     goarch: amd64
   - image_templates:
       - "ghcr.io/sirosfoundation/go-grc:{{ .Version }}-arm64"
     use: buildx
+    dockerfile: Dockerfile.goreleaser
     build_flag_templates:
       - "--platform=linux/arm64"
-      - "--build-arg=VERSION={{ .Version }}"
-      - "--build-arg=BUILD_TIME={{ .Date }}"
     goarch: arm64
 
 docker_manifests:
