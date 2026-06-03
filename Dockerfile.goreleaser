@@ -1,5 +1,4 @@
-ARG TARGETPLATFORM
-FROM --platform=${TARGETPLATFORM} alpine:3.21
+FROM alpine:3.21
 
 RUN apk add --no-cache ca-certificates git && \
     adduser -D -u 1000 grc
