@@ -31,3 +31,5 @@ override:
   # Serve command — HTTP server lifecycle + git pull are integration-level
   - threshold: 30
     path: ^cmd/grc/serve$
+  - threshold: 30
+    path: ^cmd/grc/serve/serve\.go$
