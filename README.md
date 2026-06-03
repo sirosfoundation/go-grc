@@ -157,6 +157,53 @@ docker run --rm -v /path/to/compliance:/data \
   render -r /data --profile public
 ```
 
+### Docker Compose
+
+Serve both public and private dashboards side by side:
+
+```yaml
+# docker-compose.yml
+services:
+  public:
+    image: ghcr.io/sirosfoundation/go-grc:latest
+    volumes:
+      - .:/data:ro
+    command: ["serve", "-r", "/data", "--profile", "public", "--addr", ":8080"]
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+  private:
+    image: ghcr.io/sirosfoundation/go-grc:latest
+    volumes:
+      - .:/data:ro
+    command: ["serve", "-r", "/data", "--profile", "private", "--addr", ":8080"]
+    ports:
+      - "8081:8080"
+    restart: unless-stopped
+```
+
+```bash
+docker compose up -d
+# Public dashboard:  http://localhost:8080
+# Private dashboard: http://localhost:8081
+```
+
+To enable automatic re-rendering on GitHub push, add a webhook service:
+
+```yaml
+  webhook:
+    image: ghcr.io/sirosfoundation/go-grc:latest
+    volumes:
+      - .:/data
+    command: ["serve", "-r", "/data", "--profile", "private", "--addr", ":8080", "--webhook"]
+    ports:
+      - "8082:8080"
+    environment:
+      - GRC_WEBHOOK_SECRET=${GRC_WEBHOOK_SECRET}
+    restart: unless-stopped
+```
+
 ### CI pipeline
 
 In a compliance repository with a Makefile wired to `grc`, the typical CI
