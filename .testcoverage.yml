@@ -8,6 +8,7 @@ exclude:
     - ^cmd/grc/main\.go$     # entry point — not unit-testable
     - ^pkg/github/           # GitHub API client — requires live API / mocking infrastructure
     - ^cmd/grc/sync/         # sync command — requires GitHub API token
+    - ^cmd/grc/serve/git\.go$ # git exec helper — requires git repo
 override:
   # CLI command packages: heavy integration logic, error paths require
   # complex test fixtures. Lower package threshold to 70%.
@@ -26,3 +27,6 @@ override:
     path: ^cmd/grc/render/render\.go$
   - threshold: 65
     path: ^cmd/grc/validate/validate\.go$
+  # Serve command — HTTP server lifecycle + git pull are integration-level
+  - threshold: 30
+    path: ^cmd/grc/serve$

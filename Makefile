@@ -69,6 +69,16 @@ clean: ## Remove build artifacts
 	go clean
 	rm -f bin/grc cover.out cover.html
 
+IMAGE ?= ghcr.io/sirosfoundation/go-grc
+
+.PHONY: docker
+docker: ## Build Docker image
+	docker build -t $(IMAGE):latest --build-arg VERSION=$(VERSION) --build-arg BUILD_TIME=$(shell date -u +%FT%TZ) .
+
+.PHONY: docker-push
+docker-push: docker ## Build and push Docker image
+	docker push $(IMAGE):latest
+
 .PHONY: tools
 tools: ## Install development tools
 	go install github.com/golangci-lint/golangci-lint/cmd/golangci-lint@latest

@@ -1,5 +1,5 @@
 // Package yearcycle loads recurring events from an iCal feed and
-// projects them onto a single canonical year for cyclic visualisation.
+// projects them onto a single canonical year for cyclic visualization.
 package yearcycle
 
 import (
@@ -58,7 +58,7 @@ func Load(source, title string) (*YearCycle, error) {
 		}
 		r = f
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 
 	return Parse(r, title, source)
 }

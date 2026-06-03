@@ -49,6 +49,12 @@ var (
 )
 
 func run(root, profile string) error {
+	return Run(root, profile)
+}
+
+// Run executes the full site render. It is exported so that other commands
+// (e.g. serve) can trigger re-renders programmatically.
+func Run(root, profile string) error {
 	cfg, err := config.New(root)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
