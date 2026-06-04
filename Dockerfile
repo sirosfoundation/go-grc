@@ -18,7 +18,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 
 FROM alpine:3.23
 
-RUN apk add --no-cache ca-certificates git && \
+RUN apk add --no-cache ca-certificates git nodejs npm && \
+    npm install -g pnpm && \
     adduser -D -u 1000 grc
 
 WORKDIR /data

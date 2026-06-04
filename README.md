@@ -137,21 +137,26 @@ grc -r /path/to/compliance export -o /tmp/audit-export
 
 ### Docker usage
 
+The Docker image includes Node.js and pnpm so that `grc serve` can run
+Docusaurus builds inside the container.  On startup the server renders
+markdown, runs `pnpm install` + `docusaurus build`, and then serves the
+styled HTML site.
+
 ```bash
-# Serve the compliance site
+# Serve the compliance site (renders + builds on startup)
 docker run -v /path/to/compliance:/data \
   -p 8080:8080 \
   ghcr.io/sirosfoundation/go-grc \
   serve -r /data --profile private
 
-# With GitHub webhook
+# With GitHub webhook and daily scheduled rebuilds
 docker run -v /path/to/compliance:/data \
   -e GRC_WEBHOOK_SECRET=your-secret \
   -p 8080:8080 \
   ghcr.io/sirosfoundation/go-grc \
-  serve -r /data --webhook
+  serve -r /data --webhook --rebuild-interval 24h
 
-# One-shot render
+# One-shot render (markdown only, no Docusaurus build)
 docker run --rm -v /path/to/compliance:/data \
   ghcr.io/sirosfoundation/go-grc \
   render -r /data --profile public
@@ -159,7 +164,9 @@ docker run --rm -v /path/to/compliance:/data \
 
 ### Docker Compose
 
-Serve both public and private dashboards side by side:
+Serve both public and private dashboards side by side.  A named volume for
+`node_modules` caches npm dependencies across container restarts so only the
+Docusaurus build (~20 s) runs instead of a full `pnpm install` (~2 min):
 
 ```yaml
 # docker-compose.yml
@@ -167,7 +174,8 @@ services:
   public:
     image: ghcr.io/sirosfoundation/go-grc:latest
     volumes:
-      - .:/data:ro
+      - .:/data
+      - public-site-cache:/data/site/node_modules
     command: ["serve", "-r", "/data", "--profile", "public", "--addr", ":8080"]
     ports:
       - "8080:8080"
@@ -176,11 +184,16 @@ services:
   private:
     image: ghcr.io/sirosfoundation/go-grc:latest
     volumes:
-      - .:/data:ro
+      - .:/data
+      - private-site-cache:/data/site/node_modules
     command: ["serve", "-r", "/data", "--profile", "private", "--addr", ":8080"]
     ports:
       - "8081:8080"
     restart: unless-stopped
+
+volumes:
+  public-site-cache:
+  private-site-cache:
 ```
 
 ```bash
@@ -196,7 +209,8 @@ To enable automatic re-rendering on GitHub push, add a webhook service:
     image: ghcr.io/sirosfoundation/go-grc:latest
     volumes:
       - .:/data
-    command: ["serve", "-r", "/data", "--profile", "private", "--addr", ":8080", "--webhook"]
+      - webhook-site-cache:/data/site/node_modules
+    command: ["serve", "-r", "/data", "--profile", "private", "--addr", ":8080", "--webhook", "--rebuild-interval", "24h"]
     ports:
       - "8082:8080"
     environment:
