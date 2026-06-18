@@ -26,6 +26,7 @@ type FrameworkConfig struct {
 	// Mapping schema fields (generic loading/deriving).
 	ListKey         string   `yaml:"list_key"`          // top-level YAML key (default: "mappings")
 	Sections        []string `yaml:"sections"`          // multiple YAML keys to merge (overrides list_key)
+	CatalogSections []string `yaml:"catalog_sections"`  // multiple YAML keys in catalog file (overrides "requirements")
 	KeyField        string   `yaml:"key_field"`         // field name for requirement ID
 	StatusField     string `yaml:"status_field"`      // assessment status field (default: "coverage")
 	WorkStatusField string `yaml:"work_status_field"` // optional secondary status field

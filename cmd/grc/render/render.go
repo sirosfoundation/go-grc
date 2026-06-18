@@ -90,7 +90,7 @@ func Run(root, profile string) error {
 	for _, fw := range cfg.Frameworks {
 		name := strings.TrimSuffix(fw.CatalogFile, ".yaml")
 		name = strings.TrimSuffix(name, ".yml")
-		fwCat, _ := catalog.LoadFrameworkCatalog(cfg.CatalogDir, name)
+		fwCat, _ := catalog.LoadFrameworkCatalog(cfg.CatalogDir, name, fw.CatalogSections)
 		if fwCat != nil {
 			fwCats[fw.ID] = fwCat
 		}

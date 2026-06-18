@@ -135,7 +135,7 @@ func TestDeriveControlStatusesForProfile(t *testing.T) {
 }
 
 func TestLoadFrameworkCatalog(t *testing.T) {
-	fc, err := LoadFrameworkCatalog(filepath.Join(testdataDir(), "catalog"), "eudi-secreq")
+	fc, err := LoadFrameworkCatalog(filepath.Join(testdataDir(), "catalog"), "eudi-secreq", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestLoadFrameworkCatalog(t *testing.T) {
 }
 
 func TestLoadFrameworkCatalog_Missing(t *testing.T) {
-	fc, err := LoadFrameworkCatalog(filepath.Join(testdataDir(), "catalog"), "nonexistent")
+	fc, err := LoadFrameworkCatalog(filepath.Join(testdataDir(), "catalog"), "nonexistent", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
