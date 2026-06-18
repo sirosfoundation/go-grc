@@ -89,23 +89,39 @@ func parseFramework(data []byte, fw config.FrameworkConfig) (*FrameworkMapping, 
 	if err := yaml.Unmarshal(data, &raw); err != nil {
 		return nil, err
 	}
-	rawList, ok := raw[fw.ListKey]
-	if !ok {
-		return nil, fmt.Errorf("expected %q key in YAML", fw.ListKey)
+
+	// Collect entries from one or more sections.
+	var list []map[string]interface{}
+	sections := fw.Sections
+	if len(sections) == 0 {
+		sections = []string{fw.ListKey}
 	}
-	rawSlice, ok := rawList.([]interface{})
-	if !ok {
-		return nil, fmt.Errorf("expected %q to be a list", fw.ListKey)
-	}
-	list := make([]map[string]interface{}, 0, len(rawSlice))
-	for _, item := range rawSlice {
-		if m, ok := item.(map[string]interface{}); ok {
-			list = append(list, m)
+	for _, key := range sections {
+		rawList, ok := raw[key]
+		if !ok {
+			continue
 		}
+		rawSlice, ok := rawList.([]interface{})
+		if !ok {
+			return nil, fmt.Errorf("expected %q to be a list", key)
+		}
+		for _, item := range rawSlice {
+			if m, ok := item.(map[string]interface{}); ok {
+				list = append(list, m)
+			}
+		}
+	}
+	if len(list) == 0 {
+		return nil, fmt.Errorf("no entries found in mapping file (looked for keys: %v)", sections)
+	}
+
+	sectionSet := make(map[string]bool, len(sections))
+	for _, s := range sections {
+		sectionSet[s] = true
 	}
 	extra := make(map[string]interface{})
 	for k, v := range raw {
-		if k != fw.ListKey {
+		if !sectionSet[k] {
 			extra[k] = v
 		}
 	}

@@ -24,8 +24,9 @@ type FrameworkConfig struct {
 	SidebarPosition int    `yaml:"sidebar_position"`
 
 	// Mapping schema fields (generic loading/deriving).
-	ListKey         string `yaml:"list_key"`          // top-level YAML key (default: "mappings")
-	KeyField        string `yaml:"key_field"`         // field name for requirement ID
+	ListKey         string   `yaml:"list_key"`          // top-level YAML key (default: "mappings")
+	Sections        []string `yaml:"sections"`          // multiple YAML keys to merge (overrides list_key)
+	KeyField        string   `yaml:"key_field"`         // field name for requirement ID
 	StatusField     string `yaml:"status_field"`      // assessment status field (default: "coverage")
 	WorkStatusField string `yaml:"work_status_field"` // optional secondary status field
 	NotesField      string `yaml:"notes_field"`       // field name for notes (default: "notes")
