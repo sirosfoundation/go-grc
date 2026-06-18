@@ -72,12 +72,27 @@ func runServe(root, profile, addr, webhookSecret string, enableWebhook bool, reb
 		return fmt.Errorf("loading config: %w", err)
 	}
 
+	// MCP compliance data (loaded before first render, refreshed on rebuilds).
+	var mcpData *complianceData
+	if profile == "private" {
+		mcpData = newComplianceData(root, profile)
+	}
+
 	// Initial render + Docusaurus build.
 	log.Printf("Rendering site (profile=%s)...", profile)
 	if err := renderAndBuild(root, profile); err != nil {
 		return fmt.Errorf("initial build: %w", err)
 	}
 	log.Printf("Site rendered to %s", cfg.SiteDir)
+
+	// Load MCP data after initial render so derived statuses are current.
+	if mcpData != nil {
+		if err := mcpData.reload(); err != nil {
+			log.Printf("WARNING: MCP data load failed: %v", err)
+		} else {
+			log.Printf("MCP data loaded")
+		}
+	}
 
 	// Determine which directory to serve.
 	// Prefer the Docusaurus build output (site/build/) when available;
@@ -116,9 +131,17 @@ func runServe(root, profile, addr, webhookSecret string, enableWebhook bool, reb
 			profile: profile,
 			secret:  webhookSecret,
 			repo:    cfg.Project.Repo,
+			mcpData: mcpData,
 		}
 		mux.Handle("/webhook", wh)
 		log.Printf("Webhook listener enabled for repo %s", cfg.Project.Repo)
+	}
+
+	// MCP endpoint (private mode only).
+	if mcpData != nil {
+		mcpHandler := newMCPHandler(mcpData)
+		mux.Handle("/mcp", mcpHandler)
+		log.Printf("MCP server enabled at /mcp (private mode)")
 	}
 
 	// Static file server for the site.
@@ -157,6 +180,11 @@ func runServe(root, profile, addr, webhookSecret string, enableWebhook bool, reb
 						log.Printf("Scheduled rebuild failed: %v", err)
 					} else {
 						log.Printf("Scheduled rebuild completed")
+						if mcpData != nil {
+							if err := mcpData.reload(); err != nil {
+								log.Printf("MCP data reload failed: %v", err)
+							}
+						}
 					}
 				case <-stopCh:
 					return
@@ -189,6 +217,7 @@ type webhookHandler struct {
 	profile string
 	secret  string
 	repo    string
+	mcpData *complianceData
 
 	mu         sync.Mutex
 	lastRender time.Time
@@ -278,6 +307,11 @@ func (wh *webhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Webhook: rebuild failed: %v", err)
 		http.Error(w, "rebuild failed", http.StatusInternalServerError)
 		return
+	}
+	if wh.mcpData != nil {
+		if err := wh.mcpData.reload(); err != nil {
+			log.Printf("Webhook: MCP data reload failed: %v", err)
+		}
 	}
 
 	log.Printf("Webhook: site rebuilt successfully")
