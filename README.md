@@ -307,6 +307,7 @@ make vet            # go vet
 make docker         # Build Docker image
 ```
 
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/sirosfoundation/go-grc/badge)](https://scorecard.dev/viewer/?uri=github.com/sirosfoundation/go-grc)
 ## License
 
 BSD 2-Clause — see [LICENSE](LICENSE).
