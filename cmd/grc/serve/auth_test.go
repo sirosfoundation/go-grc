@@ -574,7 +574,7 @@ func TestLoginHandler_RedirectsToProvider(t *testing.T) {
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusFound)
 	}
-	if loc := rec.Header().Get("Location"); loc == "" {
+	if rec.Header().Get("Location") == "" {
 		t.Fatal("expected a redirect Location header")
 	}
 	cookies := rec.Result().Cookies()

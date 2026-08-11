@@ -68,7 +68,7 @@ func loadMultiSectionCatalog(data []byte, name string, sections []string) (*Fram
 	fc := &FrameworkCatalog{}
 	if fwRaw, ok := raw["framework"]; ok {
 		fwBytes, _ := yaml.Marshal(fwRaw)
-		yaml.Unmarshal(fwBytes, &fc.Framework)
+		_ = yaml.Unmarshal(fwBytes, &fc.Framework)
 	}
 
 	// Collect requirements from all sections
