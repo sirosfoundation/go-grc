@@ -36,6 +36,11 @@ func NewCommand() *cobra.Command {
 		webhookSecret   string
 		enableWebhook   bool
 		rebuildInterval time.Duration
+		authIssuer      string
+		authClientID    string
+		authClientSecre string
+		baseURL         string
+		mcpAudience     string
 	)
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -44,10 +49,21 @@ func NewCommand() *cobra.Command {
 
 The site is rendered on startup (including a Docusaurus build when pnpm is
 available) and can be automatically re-rendered when a GitHub push webhook
-is received or on a recurring schedule (--rebuild-interval).`,
+is received or on a recurring schedule (--rebuild-interval).
+
+When --auth-issuer is set, the site (browser session login) and /mcp (OAuth
+bearer token) are both protected against the given OIDC provider. When
+unset, auth is disabled entirely (the pre-existing behavior).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root, _ := cmd.Flags().GetString("root")
-			return runServe(root, profile, addr, webhookSecret, enableWebhook, rebuildInterval)
+			authCfg := authConfig{
+				Issuer:       authIssuer,
+				ClientID:     authClientID,
+				ClientSecret: authClientSecre,
+				BaseURL:      baseURL,
+				MCPAudience:  mcpAudience,
+			}
+			return runServe(root, profile, addr, webhookSecret, enableWebhook, rebuildInterval, authCfg)
 		},
 	}
 	cmd.Flags().StringVar(&profile, "profile", "private", `Render profile: "public" or "private" (default)`)
@@ -55,16 +71,48 @@ is received or on a recurring schedule (--rebuild-interval).`,
 	cmd.Flags().BoolVar(&enableWebhook, "webhook", false, "Enable GitHub webhook listener at /webhook")
 	cmd.Flags().StringVar(&webhookSecret, "webhook-secret", "", "GitHub webhook secret (required if --webhook is set). Can also be set via GRC_WEBHOOK_SECRET env var.")
 	cmd.Flags().DurationVar(&rebuildInterval, "rebuild-interval", 24*time.Hour, "How often to automatically re-render and rebuild the site (0 to disable)")
+	cmd.Flags().StringVar(&authIssuer, "auth-issuer", "", "OIDC issuer URL for site login + MCP bearer auth (disabled if unset). Can also be set via GRC_OIDC_ISSUER env var.")
+	cmd.Flags().StringVar(&authClientID, "auth-client-id", "", "OIDC client ID for the browser login flow. Can also be set via GRC_OIDC_CLIENT_ID env var.")
+	cmd.Flags().StringVar(&authClientSecre, "auth-client-secret", "", "OIDC client secret for the browser login flow. Can also be set via GRC_OIDC_CLIENT_SECRET env var.")
+	cmd.Flags().StringVar(&baseURL, "base-url", "", "Public base URL of this deployment, e.g. https://grc.siros.org (required if --auth-issuer is set). Can also be set via GRC_BASE_URL env var.")
+	cmd.Flags().StringVar(&mcpAudience, "mcp-audience", "", "Required \"aud\" claim on /mcp bearer tokens. Can also be set via GRC_MCP_AUDIENCE env var.")
 	return cmd
 }
 
-func runServe(root, profile, addr, webhookSecret string, enableWebhook bool, rebuildInterval time.Duration) error {
+func runServe(root, profile, addr, webhookSecret string, enableWebhook bool, rebuildInterval time.Duration, authCfg authConfig) error {
 	// Resolve webhook secret from env if not set via flag.
 	if webhookSecret == "" {
 		webhookSecret = os.Getenv("GRC_WEBHOOK_SECRET")
 	}
 	if enableWebhook && webhookSecret == "" {
 		return fmt.Errorf("--webhook-secret or GRC_WEBHOOK_SECRET is required when --webhook is enabled")
+	}
+
+	// Resolve auth settings from env if not set via flags.
+	if authCfg.Issuer == "" {
+		authCfg.Issuer = os.Getenv("GRC_OIDC_ISSUER")
+	}
+	if authCfg.ClientID == "" {
+		authCfg.ClientID = os.Getenv("GRC_OIDC_CLIENT_ID")
+	}
+	if authCfg.ClientSecret == "" {
+		authCfg.ClientSecret = os.Getenv("GRC_OIDC_CLIENT_SECRET")
+	}
+	if authCfg.BaseURL == "" {
+		authCfg.BaseURL = os.Getenv("GRC_BASE_URL")
+	}
+	if authCfg.MCPAudience == "" {
+		authCfg.MCPAudience = os.Getenv("GRC_MCP_AUDIENCE")
+	}
+
+	var auth *oidcAuth
+	if authCfg.Issuer != "" {
+		a, err := newOIDCAuth(context.Background(), authCfg)
+		if err != nil {
+			return fmt.Errorf("initializing auth: %w", err)
+		}
+		auth = a
+		log.Printf("Auth enabled: issuer=%s base-url=%s", authCfg.Issuer, authCfg.BaseURL)
 	}
 
 	cfg, err := config.New(root)
@@ -137,16 +185,31 @@ func runServe(root, profile, addr, webhookSecret string, enableWebhook bool, reb
 		log.Printf("Webhook listener enabled for repo %s", cfg.Project.Repo)
 	}
 
-	// MCP endpoint (private mode only).
+	// Auth routes + RFC 9728 protected-resource metadata (only when
+	// --auth-issuer is set; auth is otherwise fully disabled).
+	if auth != nil {
+		mux.HandleFunc("/auth/login", auth.loginHandler)
+		mux.HandleFunc("/auth/callback", auth.callbackHandler)
+		mux.HandleFunc("/auth/logout", auth.logoutHandler)
+		mux.Handle(auth.protectedResourceMetadataPath(), auth.protectedResourceMetadataHandler())
+	}
+
+	// MCP endpoint (private mode only), gated behind bearer auth when enabled.
 	if mcpData != nil {
-		mcpHandler := newMCPHandler(mcpData)
+		var mcpHandler http.Handler = newMCPHandler(mcpData)
+		if auth != nil {
+			mcpHandler = auth.requireBearer(mcpHandler)
+		}
 		mux.Handle("/mcp", mcpHandler)
 		log.Printf("MCP server enabled at /mcp (private mode)")
 	}
 
-	// Static file server for the site.
-	siteFS := http.FileServer(http.Dir(serveDir))
-	mux.Handle("/", siteFS)
+	// Static file server for the site, gated behind session auth when enabled.
+	siteHandler := http.FileServer(http.Dir(serveDir))
+	if auth != nil {
+		siteHandler = auth.requireSession(siteHandler)
+	}
+	mux.Handle("/", siteHandler)
 
 	srv := &http.Server{
 		Addr:         addr,
