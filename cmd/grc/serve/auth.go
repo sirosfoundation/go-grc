@@ -222,7 +222,11 @@ func (a *oidcAuth) callbackHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid login state", http.StatusBadRequest)
 		return
 	}
-	wantState, verifier, returnTo := parts[0], parts[1], parts[2]
+	wantState, verifier := parts[0], parts[1]
+	// The cookie is unsigned, so a forged one (bypassing /auth/login
+	// entirely) could carry an arbitrary returnTo — re-validate it here too,
+	// not just when it was first written in loginHandler.
+	returnTo := safeReturnTo(parts[2])
 
 	if errParam := r.URL.Query().Get("error"); errParam != "" {
 		http.Error(w, "login failed: "+errParam, http.StatusUnauthorized)

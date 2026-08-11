@@ -79,16 +79,18 @@ unset, auth is disabled entirely (the pre-existing behavior).`,
 	return cmd
 }
 
-func runServe(root, profile, addr, webhookSecret string, enableWebhook bool, rebuildInterval time.Duration, authCfg authConfig) error {
-	// Resolve webhook secret from env if not set via flag.
+// resolveServeSecrets fills in the webhook and auth settings from
+// environment variables when the corresponding flag was left empty, and
+// validates the webhook secret is present when the webhook listener is
+// enabled.
+func resolveServeSecrets(webhookSecret string, enableWebhook bool, authCfg authConfig) (string, authConfig, error) {
 	if webhookSecret == "" {
 		webhookSecret = os.Getenv("GRC_WEBHOOK_SECRET")
 	}
 	if enableWebhook && webhookSecret == "" {
-		return fmt.Errorf("--webhook-secret or GRC_WEBHOOK_SECRET is required when --webhook is enabled")
+		return "", authCfg, fmt.Errorf("--webhook-secret or GRC_WEBHOOK_SECRET is required when --webhook is enabled")
 	}
 
-	// Resolve auth settings from env if not set via flags.
 	if authCfg.Issuer == "" {
 		authCfg.Issuer = os.Getenv("GRC_OIDC_ISSUER")
 	}
@@ -104,15 +106,89 @@ func runServe(root, profile, addr, webhookSecret string, enableWebhook bool, reb
 	if authCfg.MCPAudience == "" {
 		authCfg.MCPAudience = os.Getenv("GRC_MCP_AUDIENCE")
 	}
+	return webhookSecret, authCfg, nil
+}
 
-	var auth *oidcAuth
-	if authCfg.Issuer != "" {
-		a, err := newOIDCAuth(context.Background(), authCfg)
-		if err != nil {
-			return fmt.Errorf("initializing auth: %w", err)
+// maybeInitAuth constructs the OIDC auth helper when an issuer is
+// configured, or returns nil (auth disabled, the pre-existing behavior)
+// otherwise.
+func maybeInitAuth(authCfg authConfig) (*oidcAuth, error) {
+	if authCfg.Issuer == "" {
+		return nil, nil
+	}
+	auth, err := newOIDCAuth(context.Background(), authCfg)
+	if err != nil {
+		return nil, fmt.Errorf("initializing auth: %w", err)
+	}
+	log.Printf("Auth enabled: issuer=%s base-url=%s", authCfg.Issuer, authCfg.BaseURL)
+	return auth, nil
+}
+
+// buildMux assembles routing for grc serve: health/readiness probes, the
+// optional GitHub webhook listener, the optional auth routes + RFC 9728
+// metadata, the MCP endpoint (private profile only, bearer-gated when auth
+// is enabled), and the static site (session-gated when auth is enabled).
+func buildMux(root, profile, webhookSecret string, enableWebhook bool, cfg *config.Config, mcpData *complianceData, auth *oidcAuth, serveDir string) *http.ServeMux {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, `{"status":"healthy"}`)
+	})
+	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, `{"status":"ready"}`)
+	})
+
+	if enableWebhook {
+		wh := &webhookHandler{
+			root:    root,
+			profile: profile,
+			secret:  webhookSecret,
+			repo:    cfg.Project.Repo,
+			mcpData: mcpData,
 		}
-		auth = a
-		log.Printf("Auth enabled: issuer=%s base-url=%s", authCfg.Issuer, authCfg.BaseURL)
+		mux.Handle("/webhook", wh)
+		log.Printf("Webhook listener enabled for repo %s", cfg.Project.Repo)
+	}
+
+	if auth != nil {
+		mux.HandleFunc("/auth/login", auth.loginHandler)
+		mux.HandleFunc("/auth/callback", auth.callbackHandler)
+		mux.HandleFunc("/auth/logout", auth.logoutHandler)
+		mux.Handle(auth.protectedResourceMetadataPath(), auth.protectedResourceMetadataHandler())
+	}
+
+	if mcpData != nil {
+		var mcpHandler http.Handler = newMCPHandler(mcpData)
+		if auth != nil {
+			mcpHandler = auth.requireBearer(mcpHandler)
+		}
+		mux.Handle("/mcp", mcpHandler)
+		log.Printf("MCP server enabled at /mcp (private mode)")
+	}
+
+	siteHandler := http.FileServer(http.Dir(serveDir))
+	if auth != nil {
+		mux.Handle("/", auth.requireSession(siteHandler))
+	} else {
+		mux.Handle("/", siteHandler)
+	}
+
+	return mux
+}
+
+func runServe(root, profile, addr, webhookSecret string, enableWebhook bool, rebuildInterval time.Duration, authCfg authConfig) error {
+	webhookSecret, authCfg, err := resolveServeSecrets(webhookSecret, enableWebhook, authCfg)
+	if err != nil {
+		return err
+	}
+
+	auth, err := maybeInitAuth(authCfg)
+	if err != nil {
+		return err
 	}
 
 	cfg, err := config.New(root)
@@ -155,61 +231,7 @@ func runServe(root, profile, addr, webhookSecret string, enableWebhook bool, reb
 		log.Printf("Run 'cd site && pnpm exec docusaurus build' first for a styled site")
 	}
 
-	// Serve the site directory.
-	mux := http.NewServeMux()
-
-	// Health endpoint.
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprintf(w, `{"status":"healthy"}`)
-	})
-
-	// Readiness endpoint.
-	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprintf(w, `{"status":"ready"}`)
-	})
-
-	// Webhook endpoint.
-	if enableWebhook {
-		wh := &webhookHandler{
-			root:    root,
-			profile: profile,
-			secret:  webhookSecret,
-			repo:    cfg.Project.Repo,
-			mcpData: mcpData,
-		}
-		mux.Handle("/webhook", wh)
-		log.Printf("Webhook listener enabled for repo %s", cfg.Project.Repo)
-	}
-
-	// Auth routes + RFC 9728 protected-resource metadata (only when
-	// --auth-issuer is set; auth is otherwise fully disabled).
-	if auth != nil {
-		mux.HandleFunc("/auth/login", auth.loginHandler)
-		mux.HandleFunc("/auth/callback", auth.callbackHandler)
-		mux.HandleFunc("/auth/logout", auth.logoutHandler)
-		mux.Handle(auth.protectedResourceMetadataPath(), auth.protectedResourceMetadataHandler())
-	}
-
-	// MCP endpoint (private mode only), gated behind bearer auth when enabled.
-	if mcpData != nil {
-		var mcpHandler http.Handler = newMCPHandler(mcpData)
-		if auth != nil {
-			mcpHandler = auth.requireBearer(mcpHandler)
-		}
-		mux.Handle("/mcp", mcpHandler)
-		log.Printf("MCP server enabled at /mcp (private mode)")
-	}
-
-	// Static file server for the site, gated behind session auth when enabled.
-	siteHandler := http.FileServer(http.Dir(serveDir))
-	if auth != nil {
-		siteHandler = auth.requireSession(siteHandler)
-	}
-	mux.Handle("/", siteHandler)
+	mux := buildMux(root, profile, webhookSecret, enableWebhook, cfg, mcpData, auth, serveDir)
 
 	srv := &http.Server{
 		Addr:         addr,

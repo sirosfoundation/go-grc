@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -64,9 +63,8 @@ func jwkFor(key *rsa.PrivateKey, kid string) map[string]any {
 
 const testKID = "test-key-1"
 
-// testIdP is a minimal fake OIDC provider: discovery + JWKS + a scriptable
-// refresh_token grant on /token. Authorization-code exchange is not needed
-// by any test here (login/callback are exercised only up to the redirect).
+// testIdP is a minimal fake OIDC provider: discovery + JWKS + scriptable
+// refresh_token and authorization_code grants on /token.
 type testIdP struct {
 	srv *httptest.Server
 	key *rsa.PrivateKey
@@ -74,11 +72,18 @@ type testIdP struct {
 	// refreshResponses maps a refresh_token value to the id_token claims to
 	// mint on success; a missing entry causes the /token handler to 400.
 	refreshResponses map[string]map[string]any
+	// authCodeResponses maps an authorization code to the id_token claims to
+	// mint on success; a missing entry causes the /token handler to 400.
+	authCodeResponses map[string]map[string]any
 }
 
 func newTestIdP(t *testing.T) *testIdP {
 	t.Helper()
-	idp := &testIdP{key: mustRSAKey(t), refreshResponses: make(map[string]map[string]any)}
+	idp := &testIdP{
+		key:               mustRSAKey(t),
+		refreshResponses:  make(map[string]map[string]any),
+		authCodeResponses: make(map[string]map[string]any),
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
@@ -97,12 +102,21 @@ func newTestIdP(t *testing.T) *testIdP {
 	})
 	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
-		if r.PostForm.Get("grant_type") != "refresh_token" {
+		var claims map[string]any
+		var ok bool
+		var newRefreshToken string
+		switch r.PostForm.Get("grant_type") {
+		case "refresh_token":
+			rt := r.PostForm.Get("refresh_token")
+			claims, ok = idp.refreshResponses[rt]
+			newRefreshToken = "refreshed-" + rt
+		case "authorization_code":
+			claims, ok = idp.authCodeResponses[r.PostForm.Get("code")]
+			newRefreshToken = "issued-refresh-token"
+		default:
 			http.Error(w, "unsupported grant_type in test IdP", http.StatusBadRequest)
 			return
 		}
-		rt := r.PostForm.Get("refresh_token")
-		claims, ok := idp.refreshResponses[rt]
 		if !ok {
 			http.Error(w, `{"error":"invalid_grant"}`, http.StatusBadRequest)
 			return
@@ -111,7 +125,7 @@ func newTestIdP(t *testing.T) *testIdP {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"access_token":  "test-access-token",
-			"refresh_token": "refreshed-" + rt,
+			"refresh_token": newRefreshToken,
 			"id_token":      idToken,
 			"token_type":    "Bearer",
 			"expires_in":    3600,
@@ -406,6 +420,147 @@ func TestRequireSession_ExpiredRefreshSucceeds(t *testing.T) {
 	}
 }
 
+// --- callback handler ---
+
+// pkceCookieValue mimics the cookie loginHandler would have set, without
+// going through the full redirect round trip — lets tests control the
+// encoded state/verifier/returnTo directly.
+func pkceCookieValue(state, verifier, returnTo string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(state + "|" + verifier + "|" + returnTo))
+}
+
+func TestCallbackHandler_Success(t *testing.T) {
+	idp := newTestIdP(t)
+	auth := newTestAuth(t, idp, "")
+
+	idp.authCodeResponses["good-code"] = map[string]any{
+		"iss":   idp.issuer(),
+		"aud":   "grc-site",
+		"sub":   "user-1",
+		"email": "user1@example.org",
+		"exp":   time.Now().Add(time.Hour).Unix(),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/callback?state=state-1&code=good-code", nil)
+	req.AddCookie(&http.Cookie{Name: pkceCookieName, Value: pkceCookieValue("state-1", "verifier-1", "/dashboard")})
+	rec := httptest.NewRecorder()
+	auth.callbackHandler(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d (body: %s)", rec.Code, http.StatusFound, rec.Body.String())
+	}
+	if loc := rec.Header().Get("Location"); loc != "/dashboard" {
+		t.Errorf("redirect = %q, want /dashboard", loc)
+	}
+
+	var sid string
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == sessionCookieName {
+			sid = c.Value
+		}
+	}
+	if sid == "" {
+		t.Fatal("expected a session cookie to be set")
+	}
+	rec2, ok := auth.sessions.get(sid)
+	if !ok {
+		t.Fatal("session should exist in the store")
+	}
+	if rec2.subject != "user-1" {
+		t.Errorf("subject = %q, want user-1", rec2.subject)
+	}
+	if rec2.email != "user1@example.org" {
+		t.Errorf("email = %q, want user1@example.org", rec2.email)
+	}
+}
+
+// Regression test for the SonarCloud-flagged open redirect: the pkce cookie
+// is unsigned, so an attacker who never went through /auth/login could send
+// a forged cookie carrying an arbitrary returnTo. callbackHandler must
+// re-validate it (safeReturnTo), not just trust what loginHandler wrote.
+func TestCallbackHandler_RejectsForgedOpenRedirect(t *testing.T) {
+	idp := newTestIdP(t)
+	auth := newTestAuth(t, idp, "")
+
+	idp.authCodeResponses["good-code"] = map[string]any{
+		"iss": idp.issuer(),
+		"aud": "grc-site",
+		"sub": "user-1",
+		"exp": time.Now().Add(time.Hour).Unix(),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/callback?state=state-1&code=good-code", nil)
+	req.AddCookie(&http.Cookie{
+		Name:  pkceCookieName,
+		Value: pkceCookieValue("state-1", "verifier-1", "https://evil.example.com/phish"),
+	})
+	rec := httptest.NewRecorder()
+	auth.callbackHandler(rec, req)
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusFound)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/" {
+		t.Errorf("redirect = %q, want / (forged returnTo must be rejected)", loc)
+	}
+}
+
+func TestCallbackHandler_NoCookie(t *testing.T) {
+	idp := newTestIdP(t)
+	auth := newTestAuth(t, idp, "")
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/callback?state=state-1&code=good-code", nil)
+	rec := httptest.NewRecorder()
+	auth.callbackHandler(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestCallbackHandler_StateMismatch(t *testing.T) {
+	idp := newTestIdP(t)
+	auth := newTestAuth(t, idp, "")
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/callback?state=wrong-state&code=good-code", nil)
+	req.AddCookie(&http.Cookie{Name: pkceCookieName, Value: pkceCookieValue("state-1", "verifier-1", "/")})
+	rec := httptest.NewRecorder()
+	auth.callbackHandler(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func TestCallbackHandler_IdPError(t *testing.T) {
+	idp := newTestIdP(t)
+	auth := newTestAuth(t, idp, "")
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/callback?state=state-1&error=access_denied", nil)
+	req.AddCookie(&http.Cookie{Name: pkceCookieName, Value: pkceCookieValue("state-1", "verifier-1", "/")})
+	rec := httptest.NewRecorder()
+	auth.callbackHandler(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestCallbackHandler_ExchangeFails(t *testing.T) {
+	idp := newTestIdP(t)
+	auth := newTestAuth(t, idp, "")
+	// no authCodeResponses entry for "bad-code" -> token endpoint 400s
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/callback?state=state-1&code=bad-code", nil)
+	req.AddCookie(&http.Cookie{Name: pkceCookieName, Value: pkceCookieValue("state-1", "verifier-1", "/")})
+	rec := httptest.NewRecorder()
+	auth.callbackHandler(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
 // --- login/logout smoke tests ---
 
 func TestLoginHandler_RedirectsToProvider(t *testing.T) {
@@ -419,8 +574,7 @@ func TestLoginHandler_RedirectsToProvider(t *testing.T) {
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusFound)
 	}
-	loc := rec.Header().Get("Location")
-	if got := fmt.Sprintf("%v", loc); got == "" {
+	if loc := rec.Header().Get("Location"); loc == "" {
 		t.Fatal("expected a redirect Location header")
 	}
 	cookies := rec.Result().Cookies()
@@ -465,4 +619,36 @@ func mustParseHost(t *testing.T, rawURL string) string {
 		t.Fatalf("parsing URL: %v", err)
 	}
 	return u.Host
+}
+
+// --- RFC 9728 protected-resource metadata ---
+
+func TestProtectedResourceMetadata(t *testing.T) {
+	idp := newTestIdP(t)
+	auth := newTestAuth(t, idp, "grc-mcp")
+
+	if got, want := auth.protectedResourceMetadataPath(), "/.well-known/oauth-protected-resource"; got != want {
+		t.Errorf("path = %q, want %q", got, want)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, auth.protectedResourceMetadataPath(), nil)
+	rec := httptest.NewRecorder()
+	auth.protectedResourceMetadataHandler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	var body struct {
+		Resource             string   `json:"resource"`
+		AuthorizationServers []string `json:"authorization_servers"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding response: %v", err)
+	}
+	if body.Resource != "https://grc.example.org" {
+		t.Errorf("resource = %q, want https://grc.example.org", body.Resource)
+	}
+	if len(body.AuthorizationServers) != 1 || body.AuthorizationServers[0] != idp.issuer() {
+		t.Errorf("authorization_servers = %v, want [%s]", body.AuthorizationServers, idp.issuer())
+	}
 }
