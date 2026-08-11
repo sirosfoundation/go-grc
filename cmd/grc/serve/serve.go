@@ -36,6 +36,11 @@ func NewCommand() *cobra.Command {
 		webhookSecret   string
 		enableWebhook   bool
 		rebuildInterval time.Duration
+		authIssuer      string
+		authClientID    string
+		authClientSecre string
+		baseURL         string
+		mcpAudience     string
 	)
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -44,10 +49,21 @@ func NewCommand() *cobra.Command {
 
 The site is rendered on startup (including a Docusaurus build when pnpm is
 available) and can be automatically re-rendered when a GitHub push webhook
-is received or on a recurring schedule (--rebuild-interval).`,
+is received or on a recurring schedule (--rebuild-interval).
+
+When --auth-issuer is set, the site (browser session login) and /mcp (OAuth
+bearer token) are both protected against the given OIDC provider. When
+unset, auth is disabled entirely (the pre-existing behavior).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root, _ := cmd.Flags().GetString("root")
-			return runServe(root, profile, addr, webhookSecret, enableWebhook, rebuildInterval)
+			authCfg := authConfig{
+				Issuer:       authIssuer,
+				ClientID:     authClientID,
+				ClientSecret: authClientSecre,
+				BaseURL:      baseURL,
+				MCPAudience:  mcpAudience,
+			}
+			return runServe(root, profile, addr, webhookSecret, enableWebhook, rebuildInterval, authCfg)
 		},
 	}
 	cmd.Flags().StringVar(&profile, "profile", "private", `Render profile: "public" or "private" (default)`)
@@ -55,37 +71,156 @@ is received or on a recurring schedule (--rebuild-interval).`,
 	cmd.Flags().BoolVar(&enableWebhook, "webhook", false, "Enable GitHub webhook listener at /webhook")
 	cmd.Flags().StringVar(&webhookSecret, "webhook-secret", "", "GitHub webhook secret (required if --webhook is set). Can also be set via GRC_WEBHOOK_SECRET env var.")
 	cmd.Flags().DurationVar(&rebuildInterval, "rebuild-interval", 24*time.Hour, "How often to automatically re-render and rebuild the site (0 to disable)")
+	cmd.Flags().StringVar(&authIssuer, "auth-issuer", "", "OIDC issuer URL for site login + MCP bearer auth (disabled if unset). Can also be set via GRC_OIDC_ISSUER env var.")
+	cmd.Flags().StringVar(&authClientID, "auth-client-id", "", "OIDC client ID for the browser login flow. Can also be set via GRC_OIDC_CLIENT_ID env var.")
+	cmd.Flags().StringVar(&authClientSecre, "auth-client-secret", "", "OIDC client secret for the browser login flow. Can also be set via GRC_OIDC_CLIENT_SECRET env var.")
+	cmd.Flags().StringVar(&baseURL, "base-url", "", "Public base URL of this deployment, e.g. https://grc.siros.org (required if --auth-issuer is set). Can also be set via GRC_BASE_URL env var.")
+	cmd.Flags().StringVar(&mcpAudience, "mcp-audience", "", "Required \"aud\" claim on /mcp bearer tokens. Can also be set via GRC_MCP_AUDIENCE env var.")
 	return cmd
 }
 
-func runServe(root, profile, addr, webhookSecret string, enableWebhook bool, rebuildInterval time.Duration) error {
-	// Resolve webhook secret from env if not set via flag.
+// resolveServeSecrets fills in the webhook and auth settings from
+// environment variables when the corresponding flag was left empty, and
+// validates the webhook secret is present when the webhook listener is
+// enabled.
+func resolveServeSecrets(webhookSecret string, enableWebhook bool, authCfg authConfig) (string, authConfig, error) {
 	if webhookSecret == "" {
 		webhookSecret = os.Getenv("GRC_WEBHOOK_SECRET")
 	}
 	if enableWebhook && webhookSecret == "" {
-		return fmt.Errorf("--webhook-secret or GRC_WEBHOOK_SECRET is required when --webhook is enabled")
+		return "", authCfg, fmt.Errorf("--webhook-secret or GRC_WEBHOOK_SECRET is required when --webhook is enabled")
 	}
 
+	if authCfg.Issuer == "" {
+		authCfg.Issuer = os.Getenv("GRC_OIDC_ISSUER")
+	}
+	if authCfg.ClientID == "" {
+		authCfg.ClientID = os.Getenv("GRC_OIDC_CLIENT_ID")
+	}
+	if authCfg.ClientSecret == "" {
+		authCfg.ClientSecret = os.Getenv("GRC_OIDC_CLIENT_SECRET")
+	}
+	if authCfg.BaseURL == "" {
+		authCfg.BaseURL = os.Getenv("GRC_BASE_URL")
+	}
+	if authCfg.MCPAudience == "" {
+		authCfg.MCPAudience = os.Getenv("GRC_MCP_AUDIENCE")
+	}
+	return webhookSecret, authCfg, nil
+}
+
+// maybeInitAuth constructs the OIDC auth helper when an issuer is
+// configured, or returns nil (auth disabled, the pre-existing behavior)
+// otherwise.
+func maybeInitAuth(authCfg authConfig) (*oidcAuth, error) {
+	if authCfg.Issuer == "" {
+		return nil, nil
+	}
+	auth, err := newOIDCAuth(context.Background(), authCfg)
+	if err != nil {
+		return nil, fmt.Errorf("initializing auth: %w", err)
+	}
+	log.Printf("Auth enabled: issuer=%s base-url=%s", authCfg.Issuer, authCfg.BaseURL)
+	return auth, nil
+}
+
+// buildMux assembles routing for grc serve: health/readiness probes, the
+// optional GitHub webhook listener, the optional auth routes + RFC 9728
+// metadata, the MCP endpoint (private profile only, bearer-gated when auth
+// is enabled), and the static site (session-gated when auth is enabled).
+type muxConfig struct {
+	root, profile, webhookSecret string
+	enableWebhook                bool
+	cfg                          *config.Config
+	mcpData                      *complianceData
+	auth                         *oidcAuth
+	serveDir                     string
+}
+
+func buildMux(m muxConfig) *http.ServeMux {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, `{"status":"healthy"}`)
+	})
+	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = fmt.Fprintf(w, `{"status":"ready"}`)
+	})
+
+	if m.enableWebhook {
+		wh := &webhookHandler{
+			root:    m.root,
+			profile: m.profile,
+			secret:  m.webhookSecret,
+			repo:    m.cfg.Project.Repo,
+			mcpData: m.mcpData,
+		}
+		mux.Handle("/webhook", wh)
+		log.Printf("Webhook listener enabled for repo %s", m.cfg.Project.Repo)
+	}
+
+	if m.auth != nil {
+		mux.HandleFunc("/auth/login", m.auth.loginHandler)
+		mux.HandleFunc("/auth/callback", m.auth.callbackHandler)
+		mux.HandleFunc("/auth/logout", m.auth.logoutHandler)
+		mux.Handle(m.auth.protectedResourceMetadataPath(), m.auth.protectedResourceMetadataHandler())
+	}
+
+	mux.Handle("/mcp", mcpMuxHandler(m.mcpData, m.auth))
+	mux.Handle("/", siteMuxHandler(m.serveDir, m.auth))
+
+	return mux
+}
+
+// mcpMuxHandler returns the /mcp handler (private profile only), bearer-gated
+// when auth is enabled, or a 404 passthrough when MCP isn't active — mirrors
+// the pre-existing behavior of only registering the route when mcpData != nil.
+func mcpMuxHandler(mcpData *complianceData, auth *oidcAuth) http.Handler {
+	if mcpData == nil {
+		return http.NotFoundHandler()
+	}
+	var h http.Handler = newMCPHandler(mcpData)
+	if auth != nil {
+		h = auth.requireBearer(h)
+	}
+	log.Printf("MCP server enabled at /mcp (private mode)")
+	return h
+}
+
+// siteMuxHandler returns the static site handler, session-gated when auth is
+// enabled.
+func siteMuxHandler(serveDir string, auth *oidcAuth) http.Handler {
+	h := http.FileServer(http.Dir(serveDir))
+	if auth != nil {
+		return auth.requireSession(h)
+	}
+	return h
+}
+
+// prepareSite loads the project config, performs the initial render +
+// Docusaurus build, and loads MCP data (private profile only). Returns the
+// loaded config and MCP data (nil for public profile).
+func prepareSite(root, profile string) (*config.Config, *complianceData, error) {
 	cfg, err := config.New(root)
 	if err != nil {
-		return fmt.Errorf("loading config: %w", err)
+		return nil, nil, fmt.Errorf("loading config: %w", err)
 	}
 
-	// MCP compliance data (loaded before first render, refreshed on rebuilds).
 	var mcpData *complianceData
 	if profile == "private" {
 		mcpData = newComplianceData(root, profile)
 	}
 
-	// Initial render + Docusaurus build.
 	log.Printf("Rendering site (profile=%s)...", profile)
 	if err := renderAndBuild(root, profile); err != nil {
-		return fmt.Errorf("initial build: %w", err)
+		return nil, nil, fmt.Errorf("initial build: %w", err)
 	}
 	log.Printf("Site rendered to %s", cfg.SiteDir)
 
-	// Load MCP data after initial render so derived statuses are current.
 	if mcpData != nil {
 		if err := mcpData.reload(); err != nil {
 			log.Printf("WARNING: MCP data load failed: %v", err)
@@ -94,106 +229,68 @@ func runServe(root, profile, addr, webhookSecret string, enableWebhook bool, reb
 		}
 	}
 
-	// Determine which directory to serve.
-	// Prefer the Docusaurus build output (site/build/) when available;
-	// fall back to the raw rendered markdown (site/docs/).
-	serveDir := cfg.SiteDir
+	return cfg, mcpData, nil
+}
+
+// resolveServeDir picks the Docusaurus build output (site/build/) when
+// available, falling back to the raw rendered markdown (site/docs/).
+func resolveServeDir(cfg *config.Config) string {
 	buildDir := filepath.Join(filepath.Dir(cfg.SiteDir), "build")
 	if fi, err := os.Stat(buildDir); err == nil && fi.IsDir() {
-		serveDir = buildDir
-		log.Printf("Serving built site from %s", serveDir)
-	} else {
-		log.Printf("WARNING: no Docusaurus build found at %s — serving raw markdown (no styling)", buildDir)
-		log.Printf("Run 'cd site && pnpm exec docusaurus build' first for a styled site")
+		log.Printf("Serving built site from %s", buildDir)
+		return buildDir
 	}
+	log.Printf("WARNING: no Docusaurus build found at %s — serving raw markdown (no styling)", buildDir)
+	log.Printf("Run 'cd site && pnpm exec docusaurus build' first for a styled site")
+	return cfg.SiteDir
+}
 
-	// Serve the site directory.
-	mux := http.NewServeMux()
-
-	// Health endpoint.
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprintf(w, `{"status":"healthy"}`)
-	})
-
-	// Readiness endpoint.
-	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprintf(w, `{"status":"ready"}`)
-	})
-
-	// Webhook endpoint.
-	if enableWebhook {
-		wh := &webhookHandler{
-			root:    root,
-			profile: profile,
-			secret:  webhookSecret,
-			repo:    cfg.Project.Repo,
-			mcpData: mcpData,
+// startRebuildTicker runs renderAndBuild on the given interval until stopCh
+// is closed. No-op when interval is 0.
+func startRebuildTicker(stopCh <-chan struct{}, interval time.Duration, root, profile string, mcpData *complianceData) {
+	if interval <= 0 {
+		return
+	}
+	go func() {
+		log.Printf("Scheduled rebuild every %s", interval)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				runScheduledRebuild(root, profile, mcpData)
+			case <-stopCh:
+				return
+			}
 		}
-		mux.Handle("/webhook", wh)
-		log.Printf("Webhook listener enabled for repo %s", cfg.Project.Repo)
-	}
+	}()
+}
 
-	// MCP endpoint (private mode only).
+func runScheduledRebuild(root, profile string, mcpData *complianceData) {
+	log.Printf("Scheduled rebuild starting...")
+	if err := renderAndBuild(root, profile); err != nil {
+		log.Printf("Scheduled rebuild failed: %v", err)
+		return
+	}
+	log.Printf("Scheduled rebuild completed")
 	if mcpData != nil {
-		mcpHandler := newMCPHandler(mcpData)
-		mux.Handle("/mcp", mcpHandler)
-		log.Printf("MCP server enabled at /mcp (private mode)")
+		if err := mcpData.reload(); err != nil {
+			log.Printf("MCP data reload failed: %v", err)
+		}
 	}
+}
 
-	// Static file server for the site.
-	siteFS := http.FileServer(http.Dir(serveDir))
-	mux.Handle("/", siteFS)
-
-	srv := &http.Server{
-		Addr:         addr,
-		Handler:      mux,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  120 * time.Second,
-	}
-
-	// Start server in background.
+// serveUntilShutdown starts srv in the background, waits for either a
+// termination signal or a listener error, then gracefully shuts down.
+func serveUntilShutdown(srv *http.Server, stopCh chan struct{}) error {
 	errCh := make(chan error, 1)
 	go func() {
-		log.Printf("Listening on %s", addr)
+		log.Printf("Listening on %s", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			errCh <- err
 		}
 	}()
 
-	// Periodic rebuild.
-	stopCh := make(chan struct{})
-	if rebuildInterval > 0 {
-		go func() {
-			log.Printf("Scheduled rebuild every %s", rebuildInterval)
-			ticker := time.NewTicker(rebuildInterval)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ticker.C:
-					log.Printf("Scheduled rebuild starting...")
-					if err := renderAndBuild(root, profile); err != nil {
-						log.Printf("Scheduled rebuild failed: %v", err)
-					} else {
-						log.Printf("Scheduled rebuild completed")
-						if mcpData != nil {
-							if err := mcpData.reload(); err != nil {
-								log.Printf("MCP data reload failed: %v", err)
-							}
-						}
-					}
-				case <-stopCh:
-					return
-				}
-			}
-		}()
-	}
-
-	// Graceful shutdown on signal.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
@@ -209,6 +306,40 @@ func runServe(root, profile, addr, webhookSecret string, enableWebhook bool, reb
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	return srv.Shutdown(ctx)
+}
+
+func runServe(root, profile, addr, webhookSecret string, enableWebhook bool, rebuildInterval time.Duration, authCfg authConfig) error {
+	webhookSecret, authCfg, err := resolveServeSecrets(webhookSecret, enableWebhook, authCfg)
+	if err != nil {
+		return err
+	}
+
+	auth, err := maybeInitAuth(authCfg)
+	if err != nil {
+		return err
+	}
+
+	cfg, mcpData, err := prepareSite(root, profile)
+	if err != nil {
+		return err
+	}
+
+	mux := buildMux(muxConfig{
+		root: root, profile: profile, webhookSecret: webhookSecret, enableWebhook: enableWebhook,
+		cfg: cfg, mcpData: mcpData, auth: auth, serveDir: resolveServeDir(cfg),
+	})
+
+	srv := &http.Server{
+		Addr:         addr,
+		Handler:      mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+
+	stopCh := make(chan struct{})
+	startRebuildTicker(stopCh, rebuildInterval, root, profile, mcpData)
+	return serveUntilShutdown(srv, stopCh)
 }
 
 // webhookHandler handles GitHub push webhooks and triggers site re-renders.
