@@ -303,23 +303,31 @@ func TestRequireSession_UnknownCookie(t *testing.T) {
 	}
 }
 
+// serveWithSession creates a session record, sends a request carrying its
+// cookie through handler, and returns the response plus the session ID so
+// callers can inspect auth.sessions.get(sid) afterward.
+func serveWithSession(t *testing.T, auth *oidcAuth, handler http.Handler, rec sessionRecord) (*httptest.ResponseRecorder, string) {
+	t.Helper()
+	sid, err := auth.sessions.create(&rec)
+	if err != nil {
+		t.Fatalf("creating session: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sid})
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	return w, sid
+}
+
 func TestRequireSession_Valid(t *testing.T) {
 	idp := newTestIdP(t)
 	auth := newTestAuth(t, idp, "")
 	handler := auth.requireSession(okHandler())
 
-	sid, err := auth.sessions.create(&sessionRecord{
+	rec, _ := serveWithSession(t, auth, handler, sessionRecord{
 		subject: "user-1",
 		expiry:  time.Now().Add(time.Hour),
 	})
-	if err != nil {
-		t.Fatalf("creating session: %v", err)
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sid})
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -331,18 +339,10 @@ func TestRequireSession_ExpiredNoRefreshToken(t *testing.T) {
 	auth := newTestAuth(t, idp, "")
 	handler := auth.requireSession(okHandler())
 
-	sid, err := auth.sessions.create(&sessionRecord{
+	rec, sid := serveWithSession(t, auth, handler, sessionRecord{
 		subject: "user-1",
 		expiry:  time.Now().Add(-time.Hour),
 	})
-	if err != nil {
-		t.Fatalf("creating session: %v", err)
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sid})
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusFound)
@@ -357,19 +357,11 @@ func TestRequireSession_ExpiredRefreshFails(t *testing.T) {
 	auth := newTestAuth(t, idp, "")
 	handler := auth.requireSession(okHandler())
 
-	sid, err := auth.sessions.create(&sessionRecord{
+	rec, sid := serveWithSession(t, auth, handler, sessionRecord{
 		subject:      "user-1",
 		refreshToken: "bad-rt",
 		expiry:       time.Now().Add(-time.Hour),
 	})
-	if err != nil {
-		t.Fatalf("creating session: %v", err)
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sid})
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusFound)
@@ -391,19 +383,11 @@ func TestRequireSession_ExpiredRefreshSucceeds(t *testing.T) {
 		"exp": time.Now().Add(time.Hour).Unix(),
 	}
 
-	sid, err := auth.sessions.create(&sessionRecord{
+	rec, sid := serveWithSession(t, auth, handler, sessionRecord{
 		subject:      "user-1",
 		refreshToken: "good-rt",
 		expiry:       time.Now().Add(-time.Hour),
 	})
-	if err != nil {
-		t.Fatalf("creating session: %v", err)
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: sid})
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (body: %s)", rec.Code, http.StatusOK, rec.Body.String())
