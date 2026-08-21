@@ -425,18 +425,27 @@ func (wh *webhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	wh.lastRender = time.Now()
 	wh.mu.Unlock()
 
-	// Pull latest changes.
+	// Acknowledge immediately and rebuild in the background: a full
+	// render + Docusaurus build routinely takes 30-60s, well past GitHub's
+	// webhook delivery timeout, which would otherwise report every
+	// successful delivery as a failed one.
+	go wh.rebuild()
+
+	w.WriteHeader(http.StatusAccepted)
+	_, _ = fmt.Fprintf(w, `{"status":"accepted"}`)
+}
+
+// rebuild pulls latest changes and re-renders the site. Runs in the
+// background so ServeHTTP can respond before GitHub's delivery timeout.
+func (wh *webhookHandler) rebuild() {
 	log.Printf("Webhook: push to %s, pulling and re-rendering...", wh.repo)
 	if err := gitPull(wh.root); err != nil {
 		log.Printf("Webhook: git pull failed: %v", err)
-		http.Error(w, "git pull failed", http.StatusInternalServerError)
 		return
 	}
 
-	// Re-render and rebuild.
 	if err := renderAndBuild(wh.root, wh.profile); err != nil {
 		log.Printf("Webhook: rebuild failed: %v", err)
-		http.Error(w, "rebuild failed", http.StatusInternalServerError)
 		return
 	}
 	if wh.mcpData != nil {
@@ -446,8 +455,6 @@ func (wh *webhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("Webhook: site rebuilt successfully")
-	w.WriteHeader(http.StatusOK)
-	_, _ = fmt.Fprintf(w, `{"status":"rebuilt"}`)
 }
 
 // verifySignature checks the HMAC-SHA256 signature from GitHub.
