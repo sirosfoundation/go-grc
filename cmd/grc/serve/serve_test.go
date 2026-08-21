@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestVerifySignatureValid(t *testing.T) {
@@ -145,6 +146,33 @@ func TestWebhookNonDefaultBranch(t *testing.T) {
 	respBody, _ := io.ReadAll(w.Body)
 	if !strings.Contains(string(respBody), "non-default branch") {
 		t.Errorf("non-default branch: body = %q", respBody)
+	}
+}
+
+func TestWebhookValidPushAcceptedImmediately(t *testing.T) {
+	// root is intentionally not a real git checkout: the point of this test
+	// is that ServeHTTP responds before the (background, and here doomed to
+	// fail) rebuild finishes, not that the rebuild itself succeeds.
+	wh := &webhookHandler{root: t.TempDir(), profile: "private", secret: "test", repo: "org/repo"}
+	body := []byte(`{"repository":{"full_name":"org/repo"},"ref":"refs/heads/main"}`)
+	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(string(body)))
+	req.Header.Set("X-GitHub-Event", "push")
+	req.Header.Set("X-Hub-Signature-256", signPayload(body, "test"))
+
+	start := time.Now()
+	w := httptest.NewRecorder()
+	wh.ServeHTTP(w, req)
+	elapsed := time.Since(start)
+
+	if w.Code != http.StatusAccepted {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusAccepted)
+	}
+	respBody, _ := io.ReadAll(w.Body)
+	if !strings.Contains(string(respBody), "accepted") {
+		t.Errorf("body = %q, want to contain \"accepted\"", respBody)
+	}
+	if elapsed > time.Second {
+		t.Errorf("ServeHTTP took %v, want it to return before the rebuild completes", elapsed)
 	}
 }
 
