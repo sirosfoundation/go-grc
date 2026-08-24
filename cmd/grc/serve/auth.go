@@ -33,6 +33,13 @@ type authConfig struct {
 	ClientSecret string
 	BaseURL      string
 	MCPAudience  string
+
+	// MCPScopes is published as "scopes_supported" in the RFC 9728
+	// protected-resource metadata. Without it, MCP clients have nothing to
+	// narrow their authorization request to and fall back to requesting
+	// every scope the authorization server advertises -- which fails on any
+	// realm that advertises scopes the MCP client isn't entitled to.
+	MCPScopes []string
 }
 
 func (c authConfig) validate() error {
@@ -453,7 +460,9 @@ func (a *oidcAuth) protectedResourceMetadataPath() string {
 
 func (a *oidcAuth) protectedResourceMetadataHandler() http.Handler {
 	return mcpserver.NewProtectedResourceMetadataHandler(mcpserver.ProtectedResourceMetadataConfig{
-		Resource:             strings.TrimRight(a.cfg.BaseURL, "/"),
-		AuthorizationServers: []string{a.cfg.Issuer},
+		Resource:               strings.TrimRight(a.cfg.BaseURL, "/"),
+		AuthorizationServers:   []string{a.cfg.Issuer},
+		ScopesSupported:        a.cfg.MCPScopes,
+		BearerMethodsSupported: []string{"header"},
 	})
 }

@@ -146,6 +146,7 @@ func newTestAuth(t *testing.T, idp *testIdP, mcpAudience string) *oidcAuth {
 		ClientSecret: "test-secret",
 		BaseURL:      "https://grc.example.org",
 		MCPAudience:  mcpAudience,
+		MCPScopes:    splitScopes(defaultMCPScopes),
 	})
 	if err != nil {
 		t.Fatalf("newOIDCAuth: %v", err)
@@ -623,8 +624,10 @@ func TestProtectedResourceMetadata(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 	var body struct {
-		Resource             string   `json:"resource"`
-		AuthorizationServers []string `json:"authorization_servers"`
+		Resource               string   `json:"resource"`
+		AuthorizationServers   []string `json:"authorization_servers"`
+		ScopesSupported        []string `json:"scopes_supported"`
+		BearerMethodsSupported []string `json:"bearer_methods_supported"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decoding response: %v", err)
@@ -634,5 +637,50 @@ func TestProtectedResourceMetadata(t *testing.T) {
 	}
 	if len(body.AuthorizationServers) != 1 || body.AuthorizationServers[0] != idp.issuer() {
 		t.Errorf("authorization_servers = %v, want [%s]", body.AuthorizationServers, idp.issuer())
+	}
+	// Must be advertised: without it, MCP clients request every scope the
+	// authorization server advertises, which fails on realms carrying
+	// scopes the client isn't entitled to.
+	if len(body.ScopesSupported) == 0 {
+		t.Error("scopes_supported is empty; MCP clients would fall back to requesting all AS scopes")
+	}
+	if len(body.BearerMethodsSupported) != 1 || body.BearerMethodsSupported[0] != "header" {
+		t.Errorf("bearer_methods_supported = %v, want [header]", body.BearerMethodsSupported)
+	}
+}
+
+func TestSplitScopes(t *testing.T) {
+	tests := []struct {
+		in   string
+		want []string
+	}{
+		{"openid profile", []string{"openid", "profile"}},
+		{"openid,profile", []string{"openid", "profile"}},
+		{"openid, profile,  email", []string{"openid", "profile", "email"}},
+		{"  openid  ", []string{"openid"}},
+		{"", nil},
+		{"   ", nil},
+	}
+	for _, tt := range tests {
+		got := splitScopes(tt.in)
+		if len(got) != len(tt.want) {
+			t.Errorf("splitScopes(%q) = %v, want %v", tt.in, got, tt.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tt.want[i] {
+				t.Errorf("splitScopes(%q) = %v, want %v", tt.in, got, tt.want)
+				break
+			}
+		}
+	}
+}
+
+func TestSameScopes(t *testing.T) {
+	if !sameScopes(splitScopes(defaultMCPScopes), defaultMCPScopes) {
+		t.Error("parsed default should compare equal to the default")
+	}
+	if sameScopes([]string{"openid"}, defaultMCPScopes) {
+		t.Error("a user-supplied value must not be treated as the default")
 	}
 }

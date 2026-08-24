@@ -41,6 +41,7 @@ func NewCommand() *cobra.Command {
 		authClientSecre string
 		baseURL         string
 		mcpAudience     string
+		mcpScopes       string
 	)
 	cmd := &cobra.Command{
 		Use:   "serve",
@@ -62,6 +63,7 @@ unset, auth is disabled entirely (the pre-existing behavior).`,
 				ClientSecret: authClientSecre,
 				BaseURL:      baseURL,
 				MCPAudience:  mcpAudience,
+				MCPScopes:    splitScopes(mcpScopes),
 			}
 			return runServe(root, profile, addr, webhookSecret, enableWebhook, rebuildInterval, authCfg)
 		},
@@ -76,6 +78,7 @@ unset, auth is disabled entirely (the pre-existing behavior).`,
 	cmd.Flags().StringVar(&authClientSecre, "auth-client-secret", "", "OIDC client secret for the browser login flow. Can also be set via GRC_OIDC_CLIENT_SECRET env var.")
 	cmd.Flags().StringVar(&baseURL, "base-url", "", "Public base URL of this deployment, e.g. https://grc.siros.org (required if --auth-issuer is set). Can also be set via GRC_BASE_URL env var.")
 	cmd.Flags().StringVar(&mcpAudience, "mcp-audience", "", "Required \"aud\" claim on /mcp bearer tokens. Can also be set via GRC_MCP_AUDIENCE env var.")
+	cmd.Flags().StringVar(&mcpScopes, "mcp-scopes", defaultMCPScopes, "Scopes advertised as \"scopes_supported\" in the /mcp protected-resource metadata (space- or comma-separated). Can also be set via GRC_MCP_SCOPES env var.")
 	return cmd
 }
 
@@ -106,7 +109,42 @@ func resolveServeSecrets(webhookSecret string, enableWebhook bool, authCfg authC
 	if authCfg.MCPAudience == "" {
 		authCfg.MCPAudience = os.Getenv("GRC_MCP_AUDIENCE")
 	}
+	if env := os.Getenv("GRC_MCP_SCOPES"); env != "" && sameScopes(authCfg.MCPScopes, defaultMCPScopes) {
+		authCfg.MCPScopes = splitScopes(env)
+	}
 	return webhookSecret, authCfg, nil
+}
+
+// defaultMCPScopes is what an MCP client should request to authenticate to
+// /mcp: an OIDC login plus a refresh token so long-lived connections don't
+// have to re-prompt. Deliberately minimal -- the endpoint authorizes on the
+// token's audience, not on any scope.
+const defaultMCPScopes = "openid profile email offline_access"
+
+// splitScopes parses a space- or comma-separated scope list.
+func splitScopes(s string) []string {
+	fields := strings.FieldsFunc(s, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n'
+	})
+	if len(fields) == 0 {
+		return nil
+	}
+	return fields
+}
+
+// sameScopes reports whether scopes is exactly the parsed form of raw, i.e.
+// the flag was left at its default and an env var may still override it.
+func sameScopes(scopes []string, raw string) bool {
+	def := splitScopes(raw)
+	if len(scopes) != len(def) {
+		return false
+	}
+	for i := range scopes {
+		if scopes[i] != def[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // maybeInitAuth constructs the OIDC auth helper when an issuer is
