@@ -134,7 +134,7 @@ func collect(cat *catalog.Catalog, audits *audit.AuditSet, risks *risk.RiskSet, 
 	cs.Total = len(cat.Controls)
 	for _, ctrl := range cat.Controls {
 		switch ctrl.Status {
-		case "verified", "validated":
+		case "verified":
 			cs.Verified++
 		case "in_progress":
 			cs.InProgress++

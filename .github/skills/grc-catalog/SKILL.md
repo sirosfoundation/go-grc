@@ -33,7 +33,7 @@ controls:
       What this control does and how it's implemented.
     category: technical       # technical | policy | process | physical
     csf_function: protect     # NIST CSF function
-    status: to_do             # to_do | planned | verified | validated
+    status: to_do             # to_do | in_progress | verified
     owner: platform           # platform | operator | shared
     components:               # Optional - affected components
       - Component Name
@@ -46,9 +46,11 @@ controls:
 | Status | Meaning |
 |--------|---------|
 | `to_do` | Not yet implemented or verified |
-| `planned` | Implementation scheduled or in progress |
-| `verified` | Implementation confirmed via review |
-| `validated` | Implementation verified with evidence (all findings resolved) |
+| `in_progress` | Implementation scheduled or in progress |
+| `verified` | Implementation confirmed (all linked findings resolved) |
+
+`validated` is a deprecated alias for `verified`. Whether the confirmation is
+backed by evidence is a separate derived flag, not a status.
 
 Note: `derive` automatically computes effective status from linked findings.
 A control with open findings will have its derived status downgraded.

@@ -236,10 +236,10 @@ func deriveFrameworkMappings(maps mapping.Mappings, cat *catalog.Catalog, fw con
 
 // deriveVocab returns the output vocabulary for a derive mode.
 type vocab struct {
-	requireEvidence bool   // if true, only "validated" counts as full compliance
-	all             string // all mapped controls verified/validated
-	partial         string // some verified/validated
-	none            string // none verified/validated
+	requireEvidence bool   // if true, only evidenced controls count as full compliance
+	all             string // all mapped controls verified
+	partial         string // some verified
+	none            string // none verified
 	empty           string // no controls mapped
 }
 
@@ -251,7 +251,7 @@ func deriveVocab(mode string) vocab {
 }
 
 // deriveStatus computes framework requirement status from mapped control statuses.
-// The vocab determines the output labels and whether "verified" counts as complete.
+// The vocab determines the output labels and whether unevidenced verified controls count as complete.
 func deriveStatus(controlIDs []string, cat *catalog.Catalog, v vocab) (string, string) {
 	if len(controlIDs) == 0 {
 		return v.empty, "to_do"
@@ -264,11 +264,9 @@ func deriveStatus(controlIDs []string, cat *catalog.Catalog, v vocab) (string, s
 		}
 		effective := catalog.EffectiveStatus(ctrl)
 		switch effective {
-		case "validated":
+		case catalog.ControlVerified:
 			anyProgress = true
-		case "verified":
-			anyProgress = true
-			if v.requireEvidence {
+			if v.requireEvidence && !ctrl.Evidenced {
 				allComplete = false
 			}
 		default:

@@ -10,7 +10,7 @@ mappings in YAML.
 1. **Sync** — create and update GitHub issues for each audit finding; discover
    linked PRs and collect evidence.
 2. **Derive** — compute control and mapping statuses bottom-up from findings
-   and evidence (validated → verified → planned → to-do).
+   and evidence (verified → in progress → to-do).
 3. **Render** — generate a complete [Docusaurus](https://docusaurus.io/)
    compliance site with per-control pages, per-requirement pages for each
    framework, dashboards, finding summaries, risk register, and year-cycle
@@ -38,7 +38,7 @@ risk-register/      # Accepted risks with compensating controls (YAML)
 ```
 
 Each control has an ID (e.g. `SID-AUTH-01`), a status (`verified`,
-`validated`, `planned`, `to_do`), and references to source code, PRs,
+`in_progress`, `to_do`), and references to source code, PRs,
 deployed endpoints, or external reports that serve as evidence.
 
 ### Framework mappings
@@ -84,9 +84,16 @@ calendar UIDs that may change over time.
 The `derive` command computes statuses bottom-up:
 
 - **Finding → Control**: a control with open findings is downgraded; a control
-  whose findings are all resolved with evidence is upgraded to `validated`.
+  whose findings are all resolved is upgraded to `verified`. If every one of
+  those findings also carries evidence the control is additionally marked
+  *evidenced* (a flag, not a separate status).
 - **Control → Mapping**: a mapping requirement whose controls are all verified
-  or validated is marked `compliant`; partial coverage yields `partial`.
+  is marked `full`; for `result`-style frameworks it is `compliant` only when
+  they are also evidenced. Partial coverage yields `partial`.
+
+> **Terminology:** "verified" is the only control status for "implemented and
+> confirmed". The old `validated` status is a deprecated alias, read as
+> `verified`; "evidence" is tracked separately.
 
 ## Installation
 

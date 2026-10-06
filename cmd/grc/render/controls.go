@@ -91,7 +91,7 @@ func renderControlIndex(cat *catalog.Catalog, isPublic bool) string {
 			if eff != "to_do" {
 				assessed++
 			}
-			if eff == "verified" || eff == "validated" {
+			if eff == "verified" {
 				verified++
 			}
 		}
@@ -156,6 +156,13 @@ func renderControlPage(ctrl catalog.Control, groupTitle, kind string, audits *au
 	b.WriteString("| Property | Value |\n|----------|-------|\n")
 	if !isPublic {
 		fmt.Fprintf(&b, "| **Status** | %s |\n", statusBadge(effective))
+		if effective == catalog.ControlVerified {
+			ev := "none recorded"
+			if ctrl.Evidenced {
+				ev = "all findings resolved with evidence"
+			}
+			fmt.Fprintf(&b, "| **Evidence** | %s |\n", ev)
+		}
 	}
 	fmt.Fprintf(&b, "| **Owner** | %s |\n", ownerBadge(ctrl.Owner))
 	fmt.Fprintf(&b, "| **Category** | %s |\n", ctrl.Category)

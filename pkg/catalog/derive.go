@@ -2,10 +2,10 @@ package catalog
 
 import "github.com/sirosfoundation/go-grc/pkg/audit"
 
-// ControlStatus constants for derived control states.
+// ControlStatus constants for derived control states. Whether a verified
+// control is backed by evidence is tracked separately in Control.Evidenced.
 const (
-	ControlValidated  = "validated"   // all findings resolved with evidence
-	ControlVerified   = "verified"    // all findings resolved, some lack evidence
+	ControlVerified   = "verified"    // all findings resolved
 	ControlInProgress = "in_progress" // at least one finding is being worked on
 	ControlToDo       = "to_do"       // findings exist but none are resolved or active
 )
@@ -18,7 +18,8 @@ func DeriveControlStatuses(cat *Catalog, audits *audit.AuditSet) {
 		if len(findings) == 0 {
 			continue
 		}
-		derived := deriveFromFindings(findings)
+		derived, evidenced := deriveFromFindings(findings)
+		ctrl.Evidenced = evidenced
 		if derived != ctrl.Status {
 			ctrl.DerivedStatus = derived
 		}
@@ -33,11 +34,13 @@ func EffectiveStatus(ctrl *Control) string {
 	return ctrl.Status
 }
 
-func deriveFromFindings(findings []*audit.FindingRef) string {
+func deriveFromFindings(findings []*audit.FindingRef) (string, bool) {
 	return deriveFromFindingsForProfile(findings, "")
 }
 
-func deriveFromFindingsForProfile(findings []*audit.FindingRef, profile string) string {
+// deriveFromFindingsForProfile returns the derived status and whether every
+// finding is resolved with evidence.
+func deriveFromFindingsForProfile(findings []*audit.FindingRef, profile string) (string, bool) {
 	allTerminal, allEvidence, anyActive := true, true, false
 	for _, fref := range findings {
 		f := fref.Finding
@@ -53,14 +56,12 @@ func deriveFromFindingsForProfile(findings []*audit.FindingRef, profile string) 
 		}
 	}
 	switch {
-	case allTerminal && allEvidence:
-		return ControlValidated
 	case allTerminal:
-		return ControlVerified
+		return ControlVerified, allEvidence
 	case anyActive:
-		return ControlInProgress
+		return ControlInProgress, false
 	default:
-		return ControlToDo
+		return ControlToDo, false
 	}
 }
 
@@ -72,7 +73,8 @@ func DeriveControlStatusesForProfile(cat *Catalog, audits *audit.AuditSet, profi
 		if len(findings) == 0 {
 			continue
 		}
-		derived := deriveFromFindingsForProfile(findings, profile)
+		derived, evidenced := deriveFromFindingsForProfile(findings, profile)
+		ctrl.Evidenced = evidenced
 		if derived != ctrl.Status {
 			ctrl.DerivedStatus = derived
 		} else {

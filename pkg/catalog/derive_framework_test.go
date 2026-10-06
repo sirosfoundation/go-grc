@@ -20,9 +20,9 @@ func TestDeriveFromFindings_AllResolvedWithEvidence(t *testing.T) {
 			Evidence: []audit.Evidence{{Type: "merged_pr", Ref: "org/repo#1"}},
 		}},
 	}
-	got := deriveFromFindings(findings)
-	if got != ControlValidated {
-		t.Errorf("expected %q, got %q", ControlValidated, got)
+	got, evidenced := deriveFromFindings(findings)
+	if got != ControlVerified || !evidenced {
+		t.Errorf("expected %q with evidence, got %q evidenced=%v", ControlVerified, got, evidenced)
 	}
 }
 
@@ -30,9 +30,9 @@ func TestDeriveFromFindings_AllResolvedNoEvidence(t *testing.T) {
 	findings := []*audit.FindingRef{
 		{Finding: &audit.Finding{Status: "resolved"}},
 	}
-	got := deriveFromFindings(findings)
-	if got != ControlVerified {
-		t.Errorf("expected %q, got %q", ControlVerified, got)
+	got, evidenced := deriveFromFindings(findings)
+	if got != ControlVerified || evidenced {
+		t.Errorf("expected %q without evidence, got %q evidenced=%v", ControlVerified, got, evidenced)
 	}
 }
 
@@ -40,7 +40,7 @@ func TestDeriveFromFindings_InProgress(t *testing.T) {
 	findings := []*audit.FindingRef{
 		{Finding: &audit.Finding{Status: "in_progress"}},
 	}
-	got := deriveFromFindings(findings)
+	got, _ := deriveFromFindings(findings)
 	if got != ControlInProgress {
 		t.Errorf("expected %q, got %q", ControlInProgress, got)
 	}
@@ -50,7 +50,7 @@ func TestDeriveFromFindings_Open(t *testing.T) {
 	findings := []*audit.FindingRef{
 		{Finding: &audit.Finding{Status: "open"}},
 	}
-	got := deriveFromFindings(findings)
+	got, _ := deriveFromFindings(findings)
 	if got != ControlToDo {
 		t.Errorf("expected %q, got %q", ControlToDo, got)
 	}
@@ -60,7 +60,7 @@ func TestDeriveFromFindings_Accepted(t *testing.T) {
 	findings := []*audit.FindingRef{
 		{Finding: &audit.Finding{Status: "accepted"}},
 	}
-	got := deriveFromFindings(findings)
+	got, _ := deriveFromFindings(findings)
 	if got != ControlVerified {
 		t.Errorf("expected %q, got %q (accepted is terminal)", ControlVerified, got)
 	}
@@ -76,12 +76,12 @@ func TestDeriveFromFindingsForProfile(t *testing.T) {
 			},
 		}},
 	}
-	got := deriveFromFindingsForProfile(findings, "native_only")
+	got, _ := deriveFromFindingsForProfile(findings, "native_only")
 	if got != ControlVerified {
 		t.Errorf("expected %q for native_only profile, got %q", ControlVerified, got)
 	}
 
-	got = deriveFromFindingsForProfile(findings, "")
+	got, _ = deriveFromFindingsForProfile(findings, "")
 	if got != ControlToDo {
 		t.Errorf("expected %q for empty profile (open finding), got %q", ControlToDo, got)
 	}
@@ -129,7 +129,7 @@ func TestDeriveControlStatusesForProfile(t *testing.T) {
 	DeriveControlStatusesForProfile(cat, audits, "")
 	// SEC-AUTH-01 has F-001 which is resolved with evidence
 	ctrl := cat.Controls["SEC-AUTH-01"]
-	if ctrl.DerivedStatus == "" && ctrl.Status != ControlValidated {
+	if ctrl.DerivedStatus == "" && !ctrl.Evidenced {
 		t.Logf("SEC-AUTH-01 status=%s derived=%s", ctrl.Status, ctrl.DerivedStatus)
 	}
 }
@@ -160,5 +160,14 @@ func TestLoadFrameworkCatalog_Missing(t *testing.T) {
 	}
 	if fc != nil {
 		t.Error("expected nil for missing framework catalog")
+	}
+}
+
+func TestNormalizeStatus(t *testing.T) {
+	if got := NormalizeStatus("validated"); got != ControlVerified {
+		t.Errorf("validated should normalize to %q, got %q", ControlVerified, got)
+	}
+	if got := NormalizeStatus("to_do"); got != "to_do" {
+		t.Errorf("to_do must be unchanged, got %q", got)
 	}
 }

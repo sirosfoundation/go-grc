@@ -837,7 +837,7 @@ requirement by requirement.`),
 				allVerified := true
 				anyVerified := false
 				for _, mc := range matchedControls {
-					if mc.Status == "verified" || mc.Status == "validated" {
+					if mc.Status == "verified" {
 						anyVerified = true
 					} else {
 						allVerified = false
@@ -942,7 +942,7 @@ from a bid document to get a quick overview before deep-diving with map_bid_requ
 						if len(reasons) > 0 {
 							controlIDs = append(controlIDs, c.ID)
 							status := catalog.EffectiveStatus(c)
-							if status == "verified" || status == "validated" {
+							if status == "verified" {
 								anyVerified = true
 							} else {
 								allVerified = false
@@ -1070,6 +1070,7 @@ and the control's implementation status with cross-references to framework compl
 				"title":                ctrl.Title,
 				"description":          ctrl.Description,
 				"status":               catalog.EffectiveStatus(ctrl),
+				"evidenced":            ctrl.Evidenced,
 				"category":             ctrl.Category,
 				"owner":                ctrl.Owner,
 				"references":           ctrl.References,
@@ -1342,7 +1343,7 @@ Brief summary of how our platform addresses this area, with links to the shared 
 
 ### Controls
 For each relevant control, include:
-- **[Control ID](url)** — Title (Status: verified/validated/in_progress)
+- **[Control ID](url)** — Title (Status: verified/in_progress/to_do)
 
 ### Requirements
 For each requirement in this group:
