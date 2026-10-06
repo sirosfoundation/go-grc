@@ -192,3 +192,50 @@ func TestValidStatuses_Draft(t *testing.T) {
 		t.Error("unknown status must be invalid")
 	}
 }
+
+func TestAssessmentProblems(t *testing.T) {
+	ok := Risk{Consequence: "medium", Likelihood: "possible", ResidualLikelihood: "unlikely", Severity: "medium", ResidualSeverity: "low"}
+	if p := ok.AssessmentProblems(); len(p) != 0 {
+		t.Errorf("consistent assessment flagged: %v", p)
+	}
+	none := Risk{Severity: "high", ResidualSeverity: "low"}
+	if p := none.AssessmentProblems(); len(p) != 0 {
+		t.Errorf("risk without a likelihood assessment must not be flagged: %v", p)
+	}
+	drift := ok
+	drift.Severity = "high"
+	drift.ResidualSeverity = "medium"
+	if p := drift.AssessmentProblems(); len(p) != 2 {
+		t.Errorf("expected severity and residual drift to be flagged, got %v", p)
+	}
+	partial := Risk{Consequence: "medium", Severity: "medium", ResidualSeverity: "low"}
+	if p := partial.AssessmentProblems(); len(p) != 2 {
+		t.Errorf("expected a partial assessment to be flagged, got %v", p)
+	}
+	for c, row := range levelTable {
+		for l, want := range row {
+			if got, valid := Level(c, l); !valid || got != want {
+				t.Errorf("Level(%s,%s) = %s,%v", c, l, got, valid)
+			}
+		}
+	}
+}
+
+func TestDecisionProblems(t *testing.T) {
+	cases := []struct {
+		name string
+		r    Risk
+		want int
+	}{
+		{"accepted without date", Risk{Status: StatusAccepted}, 1},
+		{"accepted with date", Risk{Status: StatusAccepted, Decision: Decision{OwnerAcceptedDate: "2026-06-01"}}, 0},
+		{"draft without date", Risk{Status: StatusDraft}, 0},
+		{"monitoring without date", Risk{Status: StatusMonitoring}, 0},
+		{"malformed date", Risk{Status: StatusDraft, Decision: Decision{OwnerAcceptedDate: "June 1"}}, 1},
+	}
+	for _, c := range cases {
+		if got := c.r.DecisionProblems(); len(got) != c.want {
+			t.Errorf("%s: want %d problems, got %v", c.name, c.want, got)
+		}
+	}
+}

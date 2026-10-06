@@ -266,3 +266,64 @@ func TestDefaultProfile_NoDefault(t *testing.T) {
 		t.Errorf("expected first profile 'a' as default, got %q", cfg.DefaultProfile())
 	}
 }
+
+func TestRiskMethodologyPath(t *testing.T) {
+	root := t.TempDir()
+	write := func(y string) {
+		if err := os.WriteFile(filepath.Join(root, ".grc.yaml"), []byte(y), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("risk_register:\n  methodology: policies/m.md\n")
+	cfg, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RiskMethodologyPath != filepath.Join(root, "policies", "m.md") {
+		t.Errorf("unexpected path %q", cfg.RiskMethodologyPath)
+	}
+	write("risk_register:\n  methodology: ../outside.md\n")
+	if _, err := New(root); err == nil {
+		t.Error("a methodology outside the project root must be rejected")
+	}
+}
+
+func TestReadRiskMethodology_Containment(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.md"), []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "ok.md"), []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "linkdir")); err != nil {
+		t.Skip("symlinks unsupported:", err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "secret.md"), filepath.Join(root, "link.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "adir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	read := func(method string) ([]byte, error) {
+		if err := os.WriteFile(filepath.Join(root, ".grc.yaml"), []byte("risk_register:\n  methodology: "+method+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := New(root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cfg.ReadRiskMethodology()
+	}
+
+	if b, err := read("ok.md"); err != nil || string(b) != "ok" {
+		t.Errorf("in-root file should be readable, got %q, %v", b, err)
+	}
+	for _, m := range []string{"link.md", "linkdir/secret.md", "adir", "missing.md"} {
+		if b, err := read(m); err == nil {
+			t.Errorf("%s must be rejected, but read %q", m, b)
+		}
+	}
+}

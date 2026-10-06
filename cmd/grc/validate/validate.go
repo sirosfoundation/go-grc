@@ -172,6 +172,13 @@ func run(root string) error {
 		}
 	}
 
+	// The risk methodology, when configured, is authoritative for the register
+	if cfg.RiskMethodologyPath != "" {
+		if _, err := cfg.ReadRiskMethodology(); err != nil {
+			add(fmt.Sprintf("risk register: methodology %q not usable: %v", cfg.RiskRegister.Methodology, err))
+		}
+	}
+
 	// Validate risk register
 	risks, riskErr := risk.Load(cfg.RiskDir, cfg.RiskRegister.Files)
 	if riskErr != nil {
@@ -184,6 +191,12 @@ func run(root string) error {
 				}
 				if _, ok := audits.FindingsByID[r.Finding]; !ok {
 					add(fmt.Sprintf("risk %s: references unknown finding %q", r.ID, r.Finding))
+				}
+				for _, p := range r.DecisionProblems() {
+					add(fmt.Sprintf("risk %s: %s", r.ID, p))
+				}
+				for _, p := range r.AssessmentProblems() {
+					add(fmt.Sprintf("risk %s: %s", r.ID, p))
 				}
 				if strings.TrimSpace(r.Owner) == "" {
 					add(fmt.Sprintf("risk %s: missing risk owner", r.ID))

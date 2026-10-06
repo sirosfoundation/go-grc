@@ -30,10 +30,15 @@ type RegisterHeader struct {
 
 // Decision records the formal risk acceptance decision.
 type Decision struct {
-	Date           string `yaml:"date"`
-	Rationale      string `yaml:"rationale"`
-	Reviewer       string `yaml:"reviewer"`
-	ReviewInterval string `yaml:"review_interval"` // quarterly | annually | etc.
+	Date           string `yaml:"date" json:"date"`
+	Rationale      string `yaml:"rationale" json:"rationale"`
+	Reviewer       string `yaml:"reviewer" json:"reviewer"`
+	ReviewInterval string `yaml:"review_interval" json:"review_interval"` // quarterly | annually | etc.
+
+	// OwnerAcceptedDate (YYYY-MM-DD) is when the risk owner accepted the
+	// residual risk and approved the treatment plan. Required for accepted
+	// risks; distinct from Date (the decision) and Reviewer (the CISO).
+	OwnerAcceptedDate string `yaml:"owner_accepted_date,omitempty" json:"owner_accepted_date,omitempty"`
 }
 
 // Risk represents a single risk register entry (accepted, transferred,
@@ -43,10 +48,13 @@ type Risk struct {
 	Finding              string          `yaml:"finding"`            // finding ID
 	Profiles             []string        `yaml:"profiles,omitempty"` // empty = all profiles
 	Title                string          `yaml:"title"`
-	Owner                string          `yaml:"owner"`             // person or role accountable for the risk (required)
-	Severity             string          `yaml:"severity"`          // original severity
-	ResidualSeverity     string          `yaml:"residual_severity"` // after compensating controls
-	Status               string          `yaml:"status"`            // accepted | transferred | monitoring | draft
+	Owner                string          `yaml:"owner"`                         // person or role accountable for the risk (required)
+	Consequence          string          `yaml:"consequence,omitempty"`         // low | medium | high | critical
+	Likelihood           string          `yaml:"likelihood,omitempty"`          // unlikely | possible | likely, before compensating controls
+	ResidualLikelihood   string          `yaml:"residual_likelihood,omitempty"` // same scale, after compensating controls
+	Severity             string          `yaml:"severity"`                      // original severity
+	ResidualSeverity     string          `yaml:"residual_severity"`             // after compensating controls
+	Status               string          `yaml:"status"`                        // accepted | transferred | monitoring | draft
 	Description          string          `yaml:"description"`
 	CompensatingControls []string        `yaml:"compensating_controls"`
 	ResidualRisk         string          `yaml:"residual_risk"`
@@ -156,4 +164,62 @@ var ValidStatuses = map[string]bool{
 	StatusTransferred: true,
 	StatusMonitoring:  true,
 	StatusDraft:       true,
+}
+
+// levelTable maps consequence and likelihood to the resulting risk level
+// (the "severity" recorded in the register).
+var levelTable = map[string]map[string]string{
+	"critical": {"unlikely": "high", "possible": "critical", "likely": "critical"},
+	"high":     {"unlikely": "medium", "possible": "high", "likely": "critical"},
+	"medium":   {"unlikely": "low", "possible": "medium", "likely": "high"},
+	"low":      {"unlikely": "low", "possible": "low", "likely": "medium"},
+}
+
+// Level returns the risk level for a consequence and likelihood, and whether
+// both values are valid.
+func Level(consequence, likelihood string) (string, bool) {
+	level, ok := levelTable[consequence][likelihood]
+	return level, ok
+}
+
+// AssessmentProblems checks the likelihood assessment against the risk
+// methodology's derivation: when any of consequence, likelihood or
+// residual_likelihood is recorded, all must be valid and severity and
+// residual_severity must equal the level derived from them. It returns nothing
+// for a risk that records no likelihood assessment at all.
+func (r *Risk) AssessmentProblems() []string {
+	if r.Consequence == "" && r.Likelihood == "" && r.ResidualLikelihood == "" {
+		return nil
+	}
+	var problems []string
+	level, ok := Level(r.Consequence, r.Likelihood)
+	if !ok {
+		problems = append(problems, fmt.Sprintf("invalid consequence %q / likelihood %q", r.Consequence, r.Likelihood))
+	} else if level != r.Severity {
+		problems = append(problems, fmt.Sprintf("severity %q does not match %s consequence x %s likelihood (= %s)", r.Severity, r.Consequence, r.Likelihood, level))
+	}
+	rlevel, ok := Level(r.Consequence, r.ResidualLikelihood)
+	if !ok {
+		problems = append(problems, fmt.Sprintf("invalid consequence %q / residual_likelihood %q", r.Consequence, r.ResidualLikelihood))
+	} else if rlevel != r.ResidualSeverity {
+		problems = append(problems, fmt.Sprintf("residual_severity %q does not match %s consequence x %s residual likelihood (= %s)", r.ResidualSeverity, r.Consequence, r.ResidualLikelihood, rlevel))
+	}
+	return problems
+}
+
+// DecisionProblems checks the decision record: an accepted risk must record
+// when its owner accepted the residual risk, and any recorded date must be a
+// valid YYYY-MM-DD date.
+func (r *Risk) DecisionProblems() []string {
+	var problems []string
+	d := r.Decision.OwnerAcceptedDate
+	switch {
+	case d == "" && r.Status == StatusAccepted:
+		problems = append(problems, "accepted risk is missing decision.owner_accepted_date")
+	case d != "":
+		if _, err := time.Parse("2006-01-02", d); err != nil {
+			problems = append(problems, fmt.Sprintf("decision.owner_accepted_date %q is not a YYYY-MM-DD date", d))
+		}
+	}
+	return problems
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -58,6 +59,12 @@ type RiskRegisterConfig struct {
 	Dir    string   `yaml:"dir"`
 	Files  []string `yaml:"files"`
 	Public bool     `yaml:"public"` // whether to include in public site render
+
+	// Methodology is the path (relative to the project root) of the risk
+	// assessment methodology document. When set it is the authoritative
+	// definition of how risks are assessed and recorded: the register must
+	// not diverge from it without a corresponding change to the document.
+	Methodology string `yaml:"methodology,omitempty"`
 }
 
 // YearCycleConfig holds configuration for the year-cycle calendar view.
@@ -137,6 +144,9 @@ type Config struct {
 	SiteDir     string
 	OSCALDir    string
 	RiskDir     string
+	// RiskMethodologyPath is the resolved path of the risk methodology
+	// document, or "" when none is configured.
+	RiskMethodologyPath string
 
 	Project          ProjectConfig
 	Frameworks       []FrameworkConfig
@@ -233,6 +243,13 @@ func New(root string) (*Config, error) {
 	if cfg.RiskRegister.Dir != "" {
 		cfg.RiskDir = filepath.Join(root, cfg.RiskRegister.Dir)
 	}
+	if m := cfg.RiskRegister.Methodology; m != "" {
+		p := filepath.Join(root, m)
+		if rel, err := filepath.Rel(root, p); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return nil, fmt.Errorf("risk_register.methodology %q must be inside the project root", m)
+		}
+		cfg.RiskMethodologyPath = p
+	}
 
 	// Year cycle
 	cfg.YearCycle = grc.YearCycle
@@ -316,4 +333,33 @@ func (c *Config) HasProfile(id string) bool {
 		}
 	}
 	return false
+}
+
+// ReadRiskMethodology reads the configured risk methodology document. The
+// path is resolved through symlinks (including in parent directories) and must
+// stay inside the project root and be a regular file, so a symlink cannot be
+// used to read files outside the project.
+func (c *Config) ReadRiskMethodology() ([]byte, error) {
+	if c.RiskMethodologyPath == "" {
+		return nil, fmt.Errorf("no risk methodology configured (risk_register.methodology)")
+	}
+	root, err := filepath.EvalSymlinks(c.Root)
+	if err != nil {
+		return nil, fmt.Errorf("resolving project root: %w", err)
+	}
+	path, err := filepath.EvalSymlinks(c.RiskMethodologyPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolving risk methodology: %w", err)
+	}
+	if rel, err := filepath.Rel(root, path); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("risk methodology %q resolves outside the project root", c.RiskRegister.Methodology)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading risk methodology: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("risk methodology %q is not a regular file", c.RiskRegister.Methodology)
+	}
+	return os.ReadFile(path)
 }
