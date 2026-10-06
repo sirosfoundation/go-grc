@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sirosfoundation/go-grc/cmd/grc/render"
+	"github.com/sirosfoundation/go-grc/internal/testutil"
 )
 
 func testdataDir() string {
@@ -126,24 +127,8 @@ func TestRenderCommand_Private(t *testing.T) {
 }
 
 func TestRenderCommand_RiskWithoutTreatmentAction(t *testing.T) {
-	tmpDir := t.TempDir()
-	if err := copyDir(testdataDir(), tmpDir); err != nil {
-		t.Fatalf("copying testdata: %v", err)
-	}
+	tmpDir := testutil.CopyFixtureWithoutTreatment(t, testdataDir())
 	if err := os.MkdirAll(filepath.Join(tmpDir, "site", "docs"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(tmpDir, "risk-register", "platform.yaml")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	i := strings.Index(string(data), "    treatment_action:")
-	j := strings.Index(string(data), "    tracking:")
-	if i < 0 || j < i {
-		t.Fatal("fixture has no treatment_action to remove")
-	}
-	if err := os.WriteFile(path, []byte(string(data)[:i]+string(data)[j:]), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

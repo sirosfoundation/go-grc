@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	riskcmd "github.com/sirosfoundation/go-grc/cmd/grc/risk"
+	"github.com/sirosfoundation/go-grc/internal/testutil"
 )
 
 func testdataDir() string {
@@ -184,24 +185,7 @@ func TestSummaryCommand_JSON(t *testing.T) {
 }
 
 func TestValidateCommand_MissingTreatmentAction(t *testing.T) {
-	root := t.TempDir()
-	if err := os.CopyFS(root, os.DirFS(testdataDir())); err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(root, "risk-register", "platform.yaml")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	i := strings.Index(string(data), "    treatment_action:")
-	j := strings.Index(string(data), "    tracking:")
-	if i < 0 || j < i {
-		t.Fatal("fixture has no treatment_action to remove")
-	}
-	stripped := string(data)[:i] + string(data)[j:]
-	if err := os.WriteFile(path, []byte(stripped), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	root := testutil.CopyFixtureWithoutTreatment(t, testdataDir())
 
 	parent := &cobra.Command{Use: "grc"}
 	parent.PersistentFlags().String("root", root, "root")
@@ -211,7 +195,7 @@ func TestValidateCommand_MissingTreatmentAction(t *testing.T) {
 	old := os.Stdout
 	r, w, _ := os.Pipe()
 	os.Stdout = w
-	err = parent.Execute()
+	err := parent.Execute()
 	w.Close()
 	os.Stdout = old
 	var buf bytes.Buffer
