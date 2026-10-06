@@ -43,10 +43,13 @@ type Risk struct {
 	Finding              string          `yaml:"finding"`            // finding ID
 	Profiles             []string        `yaml:"profiles,omitempty"` // empty = all profiles
 	Title                string          `yaml:"title"`
-	Owner                string          `yaml:"owner"`             // person or role accountable for the risk (required)
-	Severity             string          `yaml:"severity"`          // original severity
-	ResidualSeverity     string          `yaml:"residual_severity"` // after compensating controls
-	Status               string          `yaml:"status"`            // accepted | transferred | monitoring | draft
+	Owner                string          `yaml:"owner"`                         // person or role accountable for the risk (required)
+	Consequence          string          `yaml:"consequence,omitempty"`         // low | medium | high | critical
+	Likelihood           string          `yaml:"likelihood,omitempty"`          // unlikely | possible | likely, before compensating controls
+	ResidualLikelihood   string          `yaml:"residual_likelihood,omitempty"` // same scale, after compensating controls
+	Severity             string          `yaml:"severity"`                      // original severity
+	ResidualSeverity     string          `yaml:"residual_severity"`             // after compensating controls
+	Status               string          `yaml:"status"`                        // accepted | transferred | monitoring | draft
 	Description          string          `yaml:"description"`
 	CompensatingControls []string        `yaml:"compensating_controls"`
 	ResidualRisk         string          `yaml:"residual_risk"`
@@ -156,4 +159,45 @@ var ValidStatuses = map[string]bool{
 	StatusTransferred: true,
 	StatusMonitoring:  true,
 	StatusDraft:       true,
+}
+
+// levelTable maps consequence and likelihood to the resulting risk level
+// (the "severity" recorded in the register).
+var levelTable = map[string]map[string]string{
+	"critical": {"unlikely": "high", "possible": "critical", "likely": "critical"},
+	"high":     {"unlikely": "medium", "possible": "high", "likely": "critical"},
+	"medium":   {"unlikely": "low", "possible": "medium", "likely": "high"},
+	"low":      {"unlikely": "low", "possible": "low", "likely": "medium"},
+}
+
+// Level returns the risk level for a consequence and likelihood, and whether
+// both values are valid.
+func Level(consequence, likelihood string) (string, bool) {
+	level, ok := levelTable[consequence][likelihood]
+	return level, ok
+}
+
+// AssessmentProblems checks the likelihood assessment against the risk
+// methodology's derivation: when any of consequence, likelihood or
+// residual_likelihood is recorded, all must be valid and severity and
+// residual_severity must equal the level derived from them. It returns nothing
+// for a risk that records no likelihood assessment at all.
+func (r *Risk) AssessmentProblems() []string {
+	if r.Consequence == "" && r.Likelihood == "" && r.ResidualLikelihood == "" {
+		return nil
+	}
+	var problems []string
+	level, ok := Level(r.Consequence, r.Likelihood)
+	if !ok {
+		problems = append(problems, fmt.Sprintf("invalid consequence %q / likelihood %q", r.Consequence, r.Likelihood))
+	} else if level != r.Severity {
+		problems = append(problems, fmt.Sprintf("severity %q does not match %s consequence x %s likelihood (= %s)", r.Severity, r.Consequence, r.Likelihood, level))
+	}
+	rlevel, ok := Level(r.Consequence, r.ResidualLikelihood)
+	if !ok {
+		problems = append(problems, fmt.Sprintf("invalid consequence %q / residual_likelihood %q", r.Consequence, r.ResidualLikelihood))
+	} else if rlevel != r.ResidualSeverity {
+		problems = append(problems, fmt.Sprintf("residual_severity %q does not match %s consequence x %s residual likelihood (= %s)", r.ResidualSeverity, r.Consequence, r.ResidualLikelihood, rlevel))
+	}
+	return problems
 }

@@ -75,7 +75,11 @@ for the register: it is served to MCP clients as `grc://risk/methodology`, the
 MCP server instructions and `risk_review` prompt tell agents to check the
 register against it, and agents are told never to change the register's
 schema or assessment rules without the matching change to the document.
-`grc validate` fails if the configured file is missing.
+`grc validate` fails if the configured file is missing. When a risk records
+`consequence`, `likelihood` and `residual_likelihood`, validation also checks
+that `severity` and `residual_severity` equal the level derived from them
+(consequence × likelihood: e.g. medium × possible = medium, medium × unlikely
+= low), so the recorded levels cannot drift from the assessment.
 
 ### Year-cycle calendar
 

@@ -192,6 +192,9 @@ func run(root string) error {
 				if _, ok := audits.FindingsByID[r.Finding]; !ok {
 					add(fmt.Sprintf("risk %s: references unknown finding %q", r.ID, r.Finding))
 				}
+				for _, p := range r.AssessmentProblems() {
+					add(fmt.Sprintf("risk %s: %s", r.ID, p))
+				}
 				if strings.TrimSpace(r.Owner) == "" {
 					add(fmt.Sprintf("risk %s: missing risk owner", r.ID))
 				}

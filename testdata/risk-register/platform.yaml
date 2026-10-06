@@ -11,6 +11,9 @@ risks:
     profiles: [full]
     title: "Browser storage exposure"
     owner: "Test Owner"
+    consequence: medium
+    likelihood: possible
+    residual_likelihood: unlikely
     severity: medium
     residual_severity: low
     status: accepted
