@@ -21,7 +21,7 @@ type Control struct {
 	Description            string   `yaml:"description"`
 	Category               string   `yaml:"category"`     // technical | policy | process | physical
 	CSFFunction            string   `yaml:"csf_function"` // identify | protect | detect | respond | recover | govern
-	Status                 string   `yaml:"status"`       // verified | to_do | in_progress | validated
+	Status                 string   `yaml:"status"`       // verified | to_do | in_progress ("validated" is a deprecated alias for verified)
 	Owner                  string   `yaml:"owner"`        // platform | operator | shared
 	Components             []string `yaml:"components,omitempty"`
 	References             []string `yaml:"references,omitempty"`
@@ -30,6 +30,12 @@ type Control struct {
 	// DerivedStatus is computed by the derive step — not persisted in YAML.
 	// It is set when all findings for this control are resolved with evidence.
 	DerivedStatus string `yaml:"-"`
+
+	// Evidenced is computed by the derive step — not persisted in YAML. It is
+	// true when every linked finding is resolved and carries evidence. It is
+	// orthogonal to Status: a control is "verified" either way, and framework
+	// results that demand proof (e.g. "compliant") additionally require this.
+	Evidenced bool `yaml:"-"`
 }
 
 // Group is a named collection of controls.
@@ -102,6 +108,7 @@ func Load(catalogDir string, subdirs ...string) (*Catalog, error) {
 			cat.Groups = append(cat.Groups, g)
 			for i := range cat.Groups[len(cat.Groups)-1].Controls {
 				ctrl := &cat.Groups[len(cat.Groups)-1].Controls[i]
+				ctrl.Status = NormalizeStatus(ctrl.Status)
 				if _, dup := cat.Controls[ctrl.ID]; dup {
 					return nil, fmt.Errorf("duplicate control ID: %s in %s", ctrl.ID, entry.Name())
 				}
@@ -115,4 +122,17 @@ func Load(catalogDir string, subdirs ...string) (*Catalog, error) {
 	})
 
 	return cat, nil
+}
+
+// StatusValidated is the deprecated spelling of StatusVerified. "Verified" and
+// "validated" used to be two display tiers (evidence missing / present); they
+// are now one status plus the separate Evidenced flag.
+const StatusValidated = "validated"
+
+// NormalizeStatus maps deprecated control status spellings to their canonical form.
+func NormalizeStatus(s string) string {
+	if s == StatusValidated {
+		return ControlVerified
+	}
+	return s
 }

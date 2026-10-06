@@ -63,5 +63,5 @@ grc render     # Regenerate compliance pages
 ```
 
 The `derive` command automatically:
-- Computes control statuses from findings (to_do → planned → verified → validated)
+- Computes control statuses from findings (to_do → in_progress → verified, plus an evidenced flag)
 - Propagates coverage to framework mappings (none → partial → full)

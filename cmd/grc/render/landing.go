@@ -273,7 +273,7 @@ func generateLanding(cfg *config.Config, cat *catalog.Catalog, activeFindings []
 			if eff != "to_do" {
 				assessed++
 			}
-			if eff == "verified" || eff == "validated" {
+			if eff == "verified" {
 				verified++
 			}
 		}

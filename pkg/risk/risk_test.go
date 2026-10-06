@@ -183,3 +183,12 @@ func TestIsOverdueRegister(t *testing.T) {
 		})
 	}
 }
+
+func TestValidStatuses_Draft(t *testing.T) {
+	if !ValidStatuses[StatusDraft] {
+		t.Error("draft must be a valid risk status")
+	}
+	if ValidStatuses["bogus"] {
+		t.Error("unknown status must be invalid")
+	}
+}

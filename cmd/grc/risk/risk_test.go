@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -67,14 +68,75 @@ func TestListCommand_JSON(t *testing.T) {
 	}
 }
 
-func TestListCommand_OwnerFilter(t *testing.T) {
-	out := runRisk(t, "list", "--format", "json", "--owner", "operator")
+func TestListCommand_RegisterOwnerFilter(t *testing.T) {
+	out := runRisk(t, "list", "--format", "json", "--register-owner", "operator")
 	var entries []riskcmd.RiskEntry
 	if err := json.Unmarshal([]byte(out), &entries); err != nil {
 		t.Fatalf("invalid JSON: %v", err)
 	}
 	if len(entries) != 0 {
 		t.Errorf("expected 0 entries for operator, got %d", len(entries))
+	}
+}
+
+func TestListCommand_RiskOwner(t *testing.T) {
+	out := runRisk(t, "list", "--format", "json", "--owner", "test owner")
+	var entries []riskcmd.RiskEntry
+	if err := json.Unmarshal([]byte(out), &entries); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Owner != "Test Owner" || entries[0].RegisterOwner != "platform" {
+		t.Errorf("unexpected entries for risk owner filter: %+v", entries)
+	}
+
+	out = runRisk(t, "list", "--format", "json", "--owner", "someone else")
+	entries = nil
+	if err := json.Unmarshal([]byte(out), &entries); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("expected 0 entries for other owner, got %d", len(entries))
+	}
+}
+
+func TestValidateCommand_MissingOwner(t *testing.T) {
+	root := t.TempDir()
+	if err := os.CopyFS(root, os.DirFS(testdataDir())); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "risk-register", "platform.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stripped := strings.Replace(string(data), "    owner: \"Test Owner\"\n", "", 1)
+	if stripped == string(data) {
+		t.Fatal("fixture has no risk owner to remove")
+	}
+	if err := os.WriteFile(path, []byte(stripped), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := riskcmd.NewCommand()
+	parent := &cobra.Command{Use: "grc"}
+	parent.PersistentFlags().String("root", root, "root")
+	parent.AddCommand(cmd)
+	parent.SetArgs([]string{"risk", "validate"})
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	err = parent.Execute()
+	w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+
+	if err == nil {
+		t.Fatal("expected validation to fail for a risk without an owner")
+	}
+	if !strings.Contains(buf.String(), "missing risk owner") {
+		t.Errorf("expected 'missing risk owner' problem, got:\n%s", buf.String())
 	}
 }
 
@@ -112,5 +174,11 @@ func TestSummaryCommand_JSON(t *testing.T) {
 	}
 	if summary.Total != 1 {
 		t.Errorf("expected 1 total, got %d", summary.Total)
+	}
+	if summary.ByOwner["Test Owner"] != 1 || summary.Unowned != 0 {
+		t.Errorf("unexpected owner breakdown: %+v", summary)
+	}
+	if summary.ByRegisterOwner["platform"] != 1 {
+		t.Errorf("unexpected register owner breakdown: %+v", summary)
 	}
 }

@@ -38,7 +38,7 @@ var validCSFFunctions = map[string]bool{
 }
 
 var validControlStatuses = map[string]bool{
-	"verified": true, "to_do": true, "in_progress": true, "validated": true,
+	"verified": true, "to_do": true, "in_progress": true,
 }
 
 var validFindingStatuses = map[string]bool{
@@ -184,6 +184,9 @@ func run(root string) error {
 				}
 				if _, ok := audits.FindingsByID[r.Finding]; !ok {
 					add(fmt.Sprintf("risk %s: references unknown finding %q", r.ID, r.Finding))
+				}
+				if strings.TrimSpace(r.Owner) == "" {
+					add(fmt.Sprintf("risk %s: missing risk owner", r.ID))
 				}
 				if r.Decision.Date == "" {
 					add(fmt.Sprintf("risk %s: missing decision date", r.ID))

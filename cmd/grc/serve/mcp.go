@@ -240,7 +240,7 @@ func registerResources(s *mcpserver.MCPServer, data *complianceData) {
 	// Risk register
 	s.AddResource(
 		mcp.NewResource("grc://risk/register", "Risk Register",
-			mcp.WithResourceDescription("Accepted and transferred risks with residual severity and compensating controls"),
+			mcp.WithResourceDescription("Risk register entries (accepted, transferred, monitoring, draft) with owner, residual severity and compensating controls"),
 			mcp.WithMIMEType("application/json"),
 		),
 		func(_ context.Context, _ mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
@@ -251,6 +251,7 @@ func registerResources(s *mcpserver.MCPServer, data *complianceData) {
 			}
 			type riskSummary struct {
 				ID                   string   `json:"id"`
+				Owner                string   `json:"owner"`
 				FindingID            string   `json:"finding_id"`
 				Severity             string   `json:"severity"`
 				ResidualSeverity     string   `json:"residual_severity"`
@@ -262,6 +263,7 @@ func registerResources(s *mcpserver.MCPServer, data *complianceData) {
 				r := ref.Risk
 				risks = append(risks, riskSummary{
 					ID:                   id,
+					Owner:                r.Owner,
 					FindingID:            r.Finding,
 					Severity:             r.Severity,
 					ResidualSeverity:     r.ResidualSeverity,
@@ -580,10 +582,16 @@ func registerTools(s *mcpserver.MCPServer, data *complianceData) {
 
 			byStatus := make(map[string]int)
 			bySeverity := make(map[string]int)
+			byOwner := make(map[string]int)
 			var overdue int
 			for _, ref := range data.risks.RisksByID {
 				r := ref.Risk
 				byStatus[r.Status]++
+				if strings.TrimSpace(r.Owner) == "" {
+					byOwner["(unassigned)"]++
+				} else {
+					byOwner[r.Owner]++
+				}
 				bySeverity[r.ResidualSeverity]++
 			}
 			for _, lf := range data.risks.Files {
@@ -595,6 +603,7 @@ func registerTools(s *mcpserver.MCPServer, data *complianceData) {
 				"total_risks":          len(data.risks.RisksByID),
 				"by_status":            byStatus,
 				"by_residual_severity": bySeverity,
+				"by_owner":             byOwner,
 				"overdue_registers":    overdue,
 			})
 		},
@@ -828,7 +837,7 @@ requirement by requirement.`),
 				allVerified := true
 				anyVerified := false
 				for _, mc := range matchedControls {
-					if mc.Status == "verified" || mc.Status == "validated" {
+					if mc.Status == "verified" {
 						anyVerified = true
 					} else {
 						allVerified = false
@@ -933,7 +942,7 @@ from a bid document to get a quick overview before deep-diving with map_bid_requ
 						if len(reasons) > 0 {
 							controlIDs = append(controlIDs, c.ID)
 							status := catalog.EffectiveStatus(c)
-							if status == "verified" || status == "validated" {
+							if status == "verified" {
 								anyVerified = true
 							} else {
 								allVerified = false
@@ -1061,6 +1070,7 @@ and the control's implementation status with cross-references to framework compl
 				"title":                ctrl.Title,
 				"description":          ctrl.Description,
 				"status":               catalog.EffectiveStatus(ctrl),
+				"evidenced":            ctrl.Evidenced,
 				"category":             ctrl.Category,
 				"owner":                ctrl.Owner,
 				"references":           ctrl.References,
@@ -1333,7 +1343,7 @@ Brief summary of how our platform addresses this area, with links to the shared 
 
 ### Controls
 For each relevant control, include:
-- **[Control ID](url)** — Title (Status: verified/validated/in_progress)
+- **[Control ID](url)** — Title (Status: verified/in_progress/to_do)
 
 ### Requirements
 For each requirement in this group:

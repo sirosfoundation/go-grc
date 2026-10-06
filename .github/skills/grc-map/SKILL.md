@@ -45,7 +45,7 @@ requirements:
 
 | Coverage | Meaning |
 |----------|---------|
-| `full` | All mapped controls are verified/validated |
+| `full` | All mapped controls are verified |
 | `partial` | Some mapped controls are verified, others pending |
 | `none` | No mapped controls are verified |
 | `not_assessed` | Not applicable or deliberately excluded |

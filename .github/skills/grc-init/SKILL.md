@@ -83,7 +83,7 @@ controls:
       Description of what this control does.
     category: technical    # technical | policy | process | physical
     csf_function: protect  # identify | protect | detect | respond | recover | govern
-    status: to_do          # to_do | planned | verified | validated
+    status: to_do          # to_do | in_progress | verified
     owner: platform        # platform | operator | shared
     components: []         # Asset/component names (optional)
     references: []         # Source code references (optional)

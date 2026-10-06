@@ -395,49 +395,16 @@ export default sidebars;
 	if err != nil {
 		return fmt.Errorf("reading docusaurus.config.ts: %w", err)
 	}
-	configStr := string(data)
-
-	findingsItem := `        {
-          type: 'docSidebar',
-          sidebarId: 'findingsSidebar',
-          position: 'left',
-          label: 'Findings',
-        },`
-
-	riskRegisterItem := `        {
-          type: 'docSidebar',
-          sidebarId: 'riskRegisterSidebar',
-          position: 'left',
-          label: 'Risk Register',
-        },`
-
-	ghItem := `        {
-          href: 'https://github.com/sirosfoundation',`
-
-	if isPublic {
-		if strings.Contains(configStr, findingsItem) {
-			configStr = strings.Replace(configStr, findingsItem+"\n", "", 1)
-		}
-		if strings.Contains(configStr, riskRegisterItem) {
-			configStr = strings.Replace(configStr, riskRegisterItem+"\n", "", 1)
-		}
+	configStr, err := patchNavbar(string(data), isPublic)
+	if err != nil {
+		// Not fatal: a stale-but-served site beats a failed rebuild, but the
+		// pages are unreachable from the navbar so make that loud.
+		fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+		configStr = string(data)
+	}
+	if configStr != string(data) {
 		if err := os.WriteFile(configPath, []byte(configStr), 0644); err != nil {
 			return fmt.Errorf("writing docusaurus.config.ts: %w", err)
-		}
-	} else {
-		var changed bool
-		if !strings.Contains(configStr, riskRegisterItem) {
-			configStr = strings.Replace(configStr, ghItem, riskRegisterItem+"\n"+ghItem, 1)
-			changed = true
-		}
-		if !strings.Contains(configStr, findingsItem) {
-			configStr = strings.Replace(configStr, riskRegisterItem, findingsItem+"\n"+riskRegisterItem, 1)
-			changed = true
-		}
-		if changed {
-			if err := os.WriteFile(configPath, []byte(configStr), 0644); err != nil {
-				return fmt.Errorf("writing docusaurus.config.ts: %w", err)
-			}
 		}
 	}
 
@@ -447,4 +414,57 @@ export default sidebars;
 	}
 
 	return nil
+}
+
+const (
+	findingsNavItem = `        {
+          type: 'docSidebar',
+          sidebarId: 'findingsSidebar',
+          position: 'left',
+          label: 'Findings',
+        },`
+
+	riskRegisterNavItem = `        {
+          type: 'docSidebar',
+          sidebarId: 'riskRegisterSidebar',
+          position: 'left',
+          label: 'Risk Register',
+        },`
+)
+
+// navbarAnchors are the items the private-only navbar entries are inserted
+// in front of, in order of preference: the GitHub link (older site
+// templates) and the raw-HTML right-hand navbar item (current templates).
+var navbarAnchors = []string{
+	"        {\n          href: 'https://github.com/sirosfoundation',",
+	"        {\n          type: 'html',",
+}
+
+// patchNavbar adds (private) or removes (public) the Findings and Risk
+// Register navbar entries in a docusaurus.config.ts. It fails rather than
+// silently skipping when a private render finds no anchor to insert before,
+// since the sidebars would then be generated but unreachable; callers decide
+// whether that is fatal.
+func patchNavbar(configStr string, isPublic bool) (string, error) {
+	if isPublic {
+		configStr = strings.Replace(configStr, findingsNavItem+"\n", "", 1)
+		return strings.Replace(configStr, riskRegisterNavItem+"\n", "", 1), nil
+	}
+
+	var missing string
+	if !strings.Contains(configStr, findingsNavItem) {
+		missing += findingsNavItem + "\n"
+	}
+	if !strings.Contains(configStr, riskRegisterNavItem) {
+		missing += riskRegisterNavItem + "\n"
+	}
+	if missing == "" {
+		return configStr, nil
+	}
+	for _, anchor := range navbarAnchors {
+		if idx := strings.Index(configStr, anchor); idx >= 0 {
+			return configStr[:idx] + missing + configStr[idx:], nil
+		}
+	}
+	return "", fmt.Errorf("docusaurus.config.ts: no navbar anchor found to insert Findings/Risk Register items before")
 }

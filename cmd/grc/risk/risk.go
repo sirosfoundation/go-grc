@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -25,20 +26,22 @@ func NewCommand() *cobra.Command {
 
 func newListCommand() *cobra.Command {
 	var (
-		owner   string
-		profile string
-		overdue bool
-		format  string
+		owner         string
+		registerOwner string
+		profile       string
+		overdue       bool
+		format        string
 	)
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List risks from the risk register",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			root, _ := cmd.Flags().GetString("root")
-			return runList(root, owner, profile, overdue, format)
+			return runList(root, owner, registerOwner, profile, overdue, format)
 		},
 	}
-	cmd.Flags().StringVar(&owner, "owner", "", "Filter by owner (platform|operator)")
+	cmd.Flags().StringVar(&owner, "owner", "", "Filter by risk owner (case-insensitive)")
+	cmd.Flags().StringVar(&registerOwner, "register-owner", "", "Filter by the team owning the register (platform|operator|foundation)")
 	cmd.Flags().StringVar(&profile, "profile", "", "Filter by deployment profile")
 	cmd.Flags().BoolVar(&overdue, "overdue", false, "Show only risks past review date")
 	cmd.Flags().StringVar(&format, "format", "text", `Output format: "text" or "json"`)
@@ -81,13 +84,14 @@ type RiskEntry struct {
 	Finding          string   `json:"finding"`
 	Profiles         []string `json:"profiles,omitempty"`
 	Owner            string   `json:"owner"`
+	RegisterOwner    string   `json:"register_owner"`
 	Title            string   `json:"title"`
 	Severity         string   `json:"severity"`
 	ResidualSeverity string   `json:"residual_severity"`
 	Status           string   `json:"status"`
 }
 
-func runList(root, owner, profile string, overdue bool, format string) error {
+func runList(root, owner, registerOwner, profile string, overdue bool, format string) error {
 	cfg, err := config.New(root)
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
@@ -101,7 +105,7 @@ func runList(root, owner, profile string, overdue bool, format string) error {
 	var entries []RiskEntry
 	for _, file := range risks.Files {
 		regOwner := file.Data.Register.Owner
-		if owner != "" && regOwner != owner {
+		if registerOwner != "" && regOwner != registerOwner {
 			continue
 		}
 		isOverdue := risk.IsOverdueRegister(file.Data.Register)
@@ -112,11 +116,15 @@ func runList(root, owner, profile string, overdue bool, format string) error {
 			if profile != "" && !r.AppliesToProfile(profile) {
 				continue
 			}
+			if owner != "" && !strings.EqualFold(r.Owner, owner) {
+				continue
+			}
 			entries = append(entries, RiskEntry{
 				ID:               r.ID,
 				Finding:          r.Finding,
 				Profiles:         r.Profiles,
-				Owner:            regOwner,
+				Owner:            r.Owner,
+				RegisterOwner:    regOwner,
 				Title:            r.Title,
 				Severity:         r.Severity,
 				ResidualSeverity: r.ResidualSeverity,
@@ -136,12 +144,12 @@ func runList(root, owner, profile string, overdue bool, format string) error {
 		return nil
 	}
 
-	fmt.Printf("%-12s %-12s %-10s %-10s %-10s %-10s %s\n",
+	fmt.Printf("%-12s %-12s %-20s %-10s %-10s %-10s %s\n",
 		"ID", "Finding", "Owner", "Severity", "Residual", "Status", "Title")
-	fmt.Println("--------------------------------------------------------------------------------------------")
+	fmt.Println(strings.Repeat("-", 100))
 	for _, e := range entries {
-		fmt.Printf("%-12s %-12s %-10s %-10s %-10s %-10s %s\n",
-			e.ID, e.Finding, e.Owner, e.Severity, e.ResidualSeverity, e.Status, truncate(e.Title, 40))
+		fmt.Printf("%-12s %-12s %-20s %-10s %-10s %-10s %s\n",
+			e.ID, e.Finding, truncate(e.Owner, 20), e.Severity, e.ResidualSeverity, e.Status, truncate(e.Title, 40))
 	}
 	return nil
 }
@@ -173,6 +181,9 @@ func runValidate(root string) error {
 			}
 			if _, ok := audits.FindingsByID[r.Finding]; !ok {
 				problems = append(problems, fmt.Sprintf("risk %s: references unknown finding %q", r.ID, r.Finding))
+			}
+			if strings.TrimSpace(r.Owner) == "" {
+				problems = append(problems, fmt.Sprintf("risk %s: missing risk owner", r.ID))
 			}
 			if r.Decision.Date == "" {
 				problems = append(problems, fmt.Sprintf("risk %s: missing decision date", r.ID))
@@ -225,10 +236,12 @@ func runValidate(root string) error {
 }
 
 type RiskSummary struct {
-	Total    int            `json:"total"`
-	ByOwner  map[string]int `json:"by_owner"`
-	ByStatus map[string]int `json:"by_status"`
-	Overdue  int            `json:"overdue"`
+	Total           int            `json:"total"`
+	ByOwner         map[string]int `json:"by_owner"`          // by accountable risk owner
+	ByRegisterOwner map[string]int `json:"by_register_owner"` // by team owning the register
+	ByStatus        map[string]int `json:"by_status"`
+	Overdue         int            `json:"overdue"`
+	Unowned         int            `json:"unowned"`
 }
 
 func runSummary(root, format string) error {
@@ -243,18 +256,24 @@ func runSummary(root, format string) error {
 	}
 
 	summary := RiskSummary{
-		ByOwner:  make(map[string]int),
-		ByStatus: make(map[string]int),
+		ByOwner:         make(map[string]int),
+		ByRegisterOwner: make(map[string]int),
+		ByStatus:        make(map[string]int),
 	}
 
 	for _, file := range risks.Files {
-		owner := file.Data.Register.Owner
+		regOwner := file.Data.Register.Owner
 		if risk.IsOverdueRegister(file.Data.Register) {
 			summary.Overdue += len(file.Data.Risks)
 		}
 		for _, r := range file.Data.Risks {
 			summary.Total++
-			summary.ByOwner[owner]++
+			summary.ByRegisterOwner[regOwner]++
+			if strings.TrimSpace(r.Owner) == "" {
+				summary.Unowned++
+			} else {
+				summary.ByOwner[r.Owner]++
+			}
 			summary.ByStatus[r.Status]++
 		}
 	}
@@ -267,7 +286,13 @@ func runSummary(root, format string) error {
 
 	fmt.Printf("Risk Register: %d total\n", summary.Total)
 	for k, v := range summary.ByOwner {
-		fmt.Printf("  %-12s %d\n", k+":", v)
+		fmt.Printf("  owner %-20s %d\n", k+":", v)
+	}
+	if summary.Unowned > 0 {
+		fmt.Printf("  UNOWNED:     %d\n", summary.Unowned)
+	}
+	for k, v := range summary.ByRegisterOwner {
+		fmt.Printf("  register %-12s %d\n", k+":", v)
 	}
 	for k, v := range summary.ByStatus {
 		fmt.Printf("  %-12s %d\n", k+":", v)
@@ -279,8 +304,9 @@ func runSummary(root, format string) error {
 }
 
 func truncate(s string, max int) string {
-	if len(s) <= max {
+	r := []rune(s)
+	if len(r) <= max {
 		return s
 	}
-	return s[:max-3] + "..."
+	return string(r[:max-3]) + "..."
 }
