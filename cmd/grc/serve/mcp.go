@@ -105,19 +105,13 @@ func (cd *complianceData) reload() error {
 	return nil
 }
 
-// newMCPHandler creates the MCP server and returns a StreamableHTTPServer
-// that can be mounted as an http.Handler.
-func newMCPHandler(data *complianceData) *mcpserver.StreamableHTTPServer {
-	s := mcpserver.NewMCPServer(
-		"grc-compliance",
-		"0.11.0",
-		mcpserver.WithResourceCapabilities(false, false),
-		mcpserver.WithInstructions(`You are a compliance and security assessment assistant with access to the SIROS Foundation's
+// serverInstructions guides the client agent; it is sent on initialize.
+const serverInstructions = `You are a compliance and security assessment assistant with access to the SIROS Foundation's
 Governance, Risk & Compliance (GRC) data. You have access to:
 
 - Security controls catalog with implementation status
 - Audit findings with severity and remediation status
-- Risk register with accepted/transferred risks
+- Risk register (accepted, transferred, monitoring and draft risks, each with an owner)
 - Framework compliance mappings (EUDI, ISO 27001, GDPR, OWASP ASVS)
 - Architecture documentation (threat models, crypto inventory, network architecture, etc.)
 - Year cycle of compliance activities
@@ -133,8 +127,27 @@ When responding to bid requirements:
 - Highlight gaps that need attention or new controls
 - Reference framework mappings when the bid cites known standards
 
+Risk methodology is authoritative: when the project configures one, it is available as
+the resource grc://risk/methodology and defines how risks are assessed, which fields the
+risk register records, and what its statuses mean. Read it before reviewing, creating or
+changing risk register entries. The risk register must not diverge from the methodology:
+if an entry, field or status does not conform, report the divergence; if a change to the
+register's schema, vocabulary or assessment rules is wanted, propose the matching change
+to the methodology document in the same change (including its version and history), and
+never change one without the other. Severity values are derived by the methodology, not
+chosen freely.
+
 Always cite specific control IDs, finding IDs, and framework requirements when making
-recommendations or compliance claims.`),
+recommendations or compliance claims.`
+
+// newMCPHandler creates the MCP server and returns a StreamableHTTPServer
+// that can be mounted as an http.Handler.
+func newMCPHandler(data *complianceData) *mcpserver.StreamableHTTPServer {
+	s := mcpserver.NewMCPServer(
+		"grc-compliance",
+		"0.11.0",
+		mcpserver.WithResourceCapabilities(false, false),
+		mcpserver.WithInstructions(serverInstructions),
 	)
 
 	registerResources(s, data)
@@ -237,10 +250,36 @@ func registerResources(s *mcpserver.MCPServer, data *complianceData) {
 		},
 	)
 
+	// Risk methodology (authoritative definition of the register)
+	s.AddResource(
+		mcp.NewResource("grc://risk/methodology", "Risk Assessment Methodology",
+			mcp.WithResourceDescription("Authoritative risk assessment methodology: how risks are assessed and recorded. The risk register must not diverge from it without a corresponding change to this document"),
+			mcp.WithMIMEType("text/markdown"),
+		),
+		func(_ context.Context, _ mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+			data.mu.RLock()
+			defer data.mu.RUnlock()
+			if data.cfg == nil || data.cfg.RiskMethodologyPath == "" {
+				return nil, fmt.Errorf("no risk methodology configured (risk_register.methodology)")
+			}
+			content, err := os.ReadFile(data.cfg.RiskMethodologyPath)
+			if err != nil {
+				return nil, fmt.Errorf("reading risk methodology: %w", err)
+			}
+			return []mcp.ResourceContents{
+				mcp.TextResourceContents{
+					URI:      "grc://risk/methodology",
+					MIMEType: "text/markdown",
+					Text:     string(content),
+				},
+			}, nil
+		},
+	)
+
 	// Risk register
 	s.AddResource(
 		mcp.NewResource("grc://risk/register", "Risk Register",
-			mcp.WithResourceDescription("Risk register entries (accepted, transferred, monitoring, draft) with owner, residual severity and compensating controls"),
+			mcp.WithResourceDescription("Governed by the risk methodology (grc://risk/methodology), which is authoritative. Risk register entries (accepted, transferred, monitoring, draft) with owner, residual severity and compensating controls"),
 			mcp.WithMIMEType("application/json"),
 		),
 		func(_ context.Context, _ mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
@@ -599,7 +638,12 @@ func registerTools(s *mcpserver.MCPServer, data *complianceData) {
 					overdue++
 				}
 			}
+			methodology := ""
+			if data.cfg != nil && data.cfg.RiskMethodologyPath != "" {
+				methodology = "grc://risk/methodology"
+			}
 			return toolResultJSON(map[string]any{
+				"methodology":          methodology,
 				"total_risks":          len(data.risks.RisksByID),
 				"by_status":            byStatus,
 				"by_residual_severity": bySeverity,
@@ -1226,7 +1270,7 @@ Steps:
 1. Run compliance_gap_analysis for %q to get current coverage
 2. Use finding_statistics to understand the overall finding landscape
 3. Search for any open critical/high findings using search_findings
-4. Check the risk_summary for accepted risks and overdue reviews
+4. Check the risk_summary for risks by status and owner, and overdue reviews
 5. List architecture documents using list_architecture_docs and review relevant ones
 
 Produce an audit readiness report covering:
@@ -1251,8 +1295,15 @@ Produce an audit readiness report covering:
 				[]mcp.PromptMessage{
 					mcp.NewPromptMessage(mcp.RoleUser, mcp.NewTextContent(`Perform a comprehensive risk register review.
 
+The risk methodology (grc://risk/methodology) is authoritative; the register must
+not diverge from it without a corresponding change to the methodology document.
+
 Steps:
-1. Use risk_summary to get an overview of accepted/transferred risks
+0. Read grc://risk/methodology (if none is configured, say so and continue). Check
+   that every register entry conforms: required fields recorded, severity consistent
+   with the methodology's derivation, statuses and review intervals as defined,
+   every risk has an owner. List each divergence explicitly.
+1. Use risk_summary to get an overview of the risks by status, owner and severity
 2. Read the full risk register resource at grc://risk/register
 3. For each risk entry, check the linked finding status using search_findings
 4. Use finding_statistics to understand the broader finding landscape
@@ -1263,6 +1314,10 @@ Produce a risk review report covering:
 - Overdue risk register reviews that need attention
 - Risks where the underlying finding has been resolved (can be closed)
 - Risks where compensating controls have degraded (need re-assessment)
+- Divergences between the register and the methodology. Resolve each by either
+  correcting the entry or proposing a change to the methodology document; a change
+  to the register's schema or rules must always be accompanied by the matching
+  methodology change (version and history updated)
 - Recommendations for risk treatment changes
 - Items requiring management decision or escalation`)),
 				},

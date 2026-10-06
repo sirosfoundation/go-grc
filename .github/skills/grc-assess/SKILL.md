@@ -47,6 +47,25 @@ When evidence changes the risk picture:
 2. Add a note to `description` or `resolution` explaining the reclassification
 3. Document the reasoning
 
+### 2a. Risk register entries
+
+If the project configures a risk methodology (`risk_register.methodology` in
+`.grc.yaml`, served over MCP as `grc://risk/methodology`), that document is
+**authoritative** for how risks are assessed and recorded. Before creating,
+reviewing or editing anything under the risk register:
+
+1. Read the methodology and follow it: required fields, how `severity` is
+   derived (do not choose it freely), what each `status` means, who must
+   approve, and the review cadence.
+2. Never change the register's schema, vocabulary or assessment rules
+   without making the matching change to the methodology document in the
+   same change (update its version and history). Equally, a methodology
+   change that alters what the register records must update the register.
+3. If an existing entry does not conform, report the divergence and fix the
+   entry, or propose the methodology change; do not leave them inconsistent.
+4. Every risk needs an `owner`. Only the role the methodology names may
+   accept a risk; do not record an acceptance on someone's behalf.
+
 ### 3. Update statuses
 
 When remediation progresses:

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -58,6 +59,12 @@ type RiskRegisterConfig struct {
 	Dir    string   `yaml:"dir"`
 	Files  []string `yaml:"files"`
 	Public bool     `yaml:"public"` // whether to include in public site render
+
+	// Methodology is the path (relative to the project root) of the risk
+	// assessment methodology document. When set it is the authoritative
+	// definition of how risks are assessed and recorded: the register must
+	// not diverge from it without a corresponding change to the document.
+	Methodology string `yaml:"methodology,omitempty"`
 }
 
 // YearCycleConfig holds configuration for the year-cycle calendar view.
@@ -137,6 +144,9 @@ type Config struct {
 	SiteDir     string
 	OSCALDir    string
 	RiskDir     string
+	// RiskMethodologyPath is the resolved path of the risk methodology
+	// document, or "" when none is configured.
+	RiskMethodologyPath string
 
 	Project          ProjectConfig
 	Frameworks       []FrameworkConfig
@@ -232,6 +242,13 @@ func New(root string) (*Config, error) {
 	cfg.RiskRegister = grc.RiskRegister
 	if cfg.RiskRegister.Dir != "" {
 		cfg.RiskDir = filepath.Join(root, cfg.RiskRegister.Dir)
+	}
+	if m := cfg.RiskRegister.Methodology; m != "" {
+		p := filepath.Join(root, m)
+		if rel, err := filepath.Rel(root, p); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return nil, fmt.Errorf("risk_register.methodology %q must be inside the project root", m)
+		}
+		cfg.RiskMethodologyPath = p
 	}
 
 	// Year cycle

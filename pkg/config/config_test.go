@@ -266,3 +266,24 @@ func TestDefaultProfile_NoDefault(t *testing.T) {
 		t.Errorf("expected first profile 'a' as default, got %q", cfg.DefaultProfile())
 	}
 }
+
+func TestRiskMethodologyPath(t *testing.T) {
+	root := t.TempDir()
+	write := func(y string) {
+		if err := os.WriteFile(filepath.Join(root, ".grc.yaml"), []byte(y), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("risk_register:\n  methodology: policies/m.md\n")
+	cfg, err := New(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.RiskMethodologyPath != filepath.Join(root, "policies", "m.md") {
+		t.Errorf("unexpected path %q", cfg.RiskMethodologyPath)
+	}
+	write("risk_register:\n  methodology: ../outside.md\n")
+	if _, err := New(root); err == nil {
+		t.Error("a methodology outside the project root must be rejected")
+	}
+}

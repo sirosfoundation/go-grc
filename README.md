@@ -69,6 +69,14 @@ assesses the analysis) and from the register-level `owner` (the team that owns
 the register file). `grc validate` and `grc risk validate` fail on a risk
 without one; `grc risk list --owner NAME` filters by it.
 
+Projects can name their risk assessment methodology document with
+`risk_register.methodology` in `.grc.yaml`. It is treated as **authoritative**
+for the register: it is served to MCP clients as `grc://risk/methodology`, the
+MCP server instructions and `risk_review` prompt tell agents to check the
+register against it, and agents are told never to change the register's
+schema or assessment rules without the matching change to the document.
+`grc validate` fails if the configured file is missing.
+
 ### Year-cycle calendar
 
 Recurring GRC activities (reviews, audits, penetration tests) can be loaded
