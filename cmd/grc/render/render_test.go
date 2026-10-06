@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -98,5 +99,20 @@ func TestRenderCommand_Private(t *testing.T) {
 	}
 	if len(entries) == 0 {
 		t.Error("render produced no risk register output files")
+	}
+
+	page, err := os.ReadFile(filepath.Join(riskDir, "rsk_p_001.md"))
+	if err != nil {
+		t.Fatalf("reading risk page: %v", err)
+	}
+	if !strings.Contains(string(page), "| **Risk Owner** | Test Owner |") {
+		t.Errorf("risk page does not show the risk owner:\n%s", page)
+	}
+	index, err := os.ReadFile(filepath.Join(riskDir, "index.md"))
+	if err != nil {
+		t.Fatalf("reading risk index: %v", err)
+	}
+	if !strings.Contains(string(index), "| Test Owner |") {
+		t.Errorf("risk index does not show the risk owner:\n%s", index)
 	}
 }

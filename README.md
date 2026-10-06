@@ -62,6 +62,13 @@ links to a finding, documents compensating controls, residual severity, and
 review intervals. The rendered site shows an overview with severity badges
 and per-risk detail pages.
 
+Every risk must have an `owner`: the person or role accountable for it, who
+approves the treatment plan and accepts the residual risk (ISO/IEC 27001:2022
+6.1.2 c) 2), 6.1.3 e)). This is distinct from `decision.reviewer` (who
+assesses the analysis) and from the register-level `owner` (the team that owns
+the register file). `grc validate` and `grc risk validate` fail on a risk
+without one; `grc risk list --owner NAME` filters by it.
+
 ### Year-cycle calendar
 
 Recurring GRC activities (reviews, audits, penetration tests) can be loaded

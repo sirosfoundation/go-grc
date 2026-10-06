@@ -16,13 +16,14 @@ const (
 	StatusAccepted    = "accepted"
 	StatusTransferred = "transferred"
 	StatusMonitoring  = "monitoring"
+	StatusDraft       = "draft" // proposed entry awaiting a treatment decision
 )
 
 // RegisterHeader holds metadata for a risk register file.
 type RegisterHeader struct {
 	ID         string `yaml:"id"`
 	Title      string `yaml:"title"`
-	Owner      string `yaml:"owner"` // platform | operator
+	Owner      string `yaml:"owner"` // team owning the register: platform | operator | foundation
 	LastReview string `yaml:"last_review"`
 	NextReview string `yaml:"next_review"`
 }
@@ -41,9 +42,10 @@ type Risk struct {
 	Finding              string          `yaml:"finding"`            // finding ID
 	Profiles             []string        `yaml:"profiles,omitempty"` // empty = all profiles
 	Title                string          `yaml:"title"`
+	Owner                string          `yaml:"owner"`             // person or role accountable for the risk (required)
 	Severity             string          `yaml:"severity"`          // original severity
 	ResidualSeverity     string          `yaml:"residual_severity"` // after compensating controls
-	Status               string          `yaml:"status"`            // accepted | transferred | monitoring
+	Status               string          `yaml:"status"`            // accepted | transferred | monitoring | draft
 	Description          string          `yaml:"description"`
 	CompensatingControls []string        `yaml:"compensating_controls"`
 	ResidualRisk         string          `yaml:"residual_risk"`
@@ -152,4 +154,5 @@ var ValidStatuses = map[string]bool{
 	StatusAccepted:    true,
 	StatusTransferred: true,
 	StatusMonitoring:  true,
+	StatusDraft:       true,
 }

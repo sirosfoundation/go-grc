@@ -251,6 +251,7 @@ func registerResources(s *mcpserver.MCPServer, data *complianceData) {
 			}
 			type riskSummary struct {
 				ID                   string   `json:"id"`
+				Owner                string   `json:"owner"`
 				FindingID            string   `json:"finding_id"`
 				Severity             string   `json:"severity"`
 				ResidualSeverity     string   `json:"residual_severity"`
@@ -262,6 +263,7 @@ func registerResources(s *mcpserver.MCPServer, data *complianceData) {
 				r := ref.Risk
 				risks = append(risks, riskSummary{
 					ID:                   id,
+					Owner:                r.Owner,
 					FindingID:            r.Finding,
 					Severity:             r.Severity,
 					ResidualSeverity:     r.ResidualSeverity,
@@ -580,10 +582,16 @@ func registerTools(s *mcpserver.MCPServer, data *complianceData) {
 
 			byStatus := make(map[string]int)
 			bySeverity := make(map[string]int)
+			byOwner := make(map[string]int)
 			var overdue int
 			for _, ref := range data.risks.RisksByID {
 				r := ref.Risk
 				byStatus[r.Status]++
+				if r.Owner == "" {
+					byOwner["(unassigned)"]++
+				} else {
+					byOwner[r.Owner]++
+				}
 				bySeverity[r.ResidualSeverity]++
 			}
 			for _, lf := range data.risks.Files {
@@ -595,6 +603,7 @@ func registerTools(s *mcpserver.MCPServer, data *complianceData) {
 				"total_risks":          len(data.risks.RisksByID),
 				"by_status":            byStatus,
 				"by_residual_severity": bySeverity,
+				"by_owner":             byOwner,
 				"overdue_registers":    overdue,
 			})
 		},

@@ -44,15 +44,15 @@ func renderRiskIndex(risks *risk.RiskSet) string {
 			b.WriteString(":::warning\nThis risk register is overdue for review.\n:::\n\n")
 		}
 
-		b.WriteString("| Risk | Finding | Severity | Residual | Status | Profiles |\n")
-		b.WriteString("|------|---------|----------|----------|--------|----------|\n")
+		b.WriteString("| Risk | Finding | Owner | Severity | Residual | Status | Profiles |\n")
+		b.WriteString("|------|---------|-------|----------|----------|--------|----------|\n")
 		for _, r := range file.Data.Risks {
 			profiles := "all"
 			if len(r.Profiles) > 0 {
 				profiles = strings.Join(r.Profiles, ", ")
 			}
-			fmt.Fprintf(&b, "| [%s](/risk-register/%s) | %s | %s %s | %s %s | %s | %s |\n",
-				r.ID, idSlug(r.ID), r.Finding,
+			fmt.Fprintf(&b, "| [%s](/risk-register/%s) | %s | %s | %s %s | %s %s | %s | %s |\n",
+				r.ID, idSlug(r.ID), r.Finding, riskOwnerCell(r.Owner),
 				sevIcon(r.Severity), r.Severity,
 				sevIcon(r.ResidualSeverity), r.ResidualSeverity,
 				r.Status, profiles)
@@ -69,7 +69,8 @@ func renderRiskPage(r *risk.Risk, owner string) string {
 
 	b.WriteString("| | |\n|---|---|\n")
 	fmt.Fprintf(&b, "| **Finding** | %s |\n", r.Finding)
-	fmt.Fprintf(&b, "| **Owner** | %s |\n", ownerBadge(owner))
+	fmt.Fprintf(&b, "| **Risk Owner** | %s |\n", riskOwnerCell(r.Owner))
+	fmt.Fprintf(&b, "| **Register Owner** | %s |\n", ownerBadge(owner))
 	fmt.Fprintf(&b, "| **Original Severity** | %s %s |\n", sevIcon(r.Severity), r.Severity)
 	fmt.Fprintf(&b, "| **Residual Severity** | %s %s |\n", sevIcon(r.ResidualSeverity), r.ResidualSeverity)
 	fmt.Fprintf(&b, "| **Status** | %s |\n", r.Status)
@@ -106,4 +107,13 @@ func renderRiskPage(r *risk.Risk, owner string) string {
 	}
 
 	return b.String()
+}
+
+// riskOwnerCell renders a risk's accountable owner, flagging a missing one
+// so an unowned risk is conspicuous on the site rather than a blank cell.
+func riskOwnerCell(owner string) string {
+	if strings.TrimSpace(owner) == "" {
+		return "**UNASSIGNED**"
+	}
+	return owner
 }
