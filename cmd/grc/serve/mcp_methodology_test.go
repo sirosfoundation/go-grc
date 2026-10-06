@@ -110,6 +110,11 @@ risks:
       reviewer: ciso
       owner_accepted_date: "2026-06-02"
       review_interval: quarterly
+    treatment_action:
+      action: "Rotate keys"
+      responsible: "Ops"
+      status: done
+      completed_date: "2026-07-01"
 `
 	if err := os.WriteFile(filepath.Join(root, "rr", "platform.yaml"), []byte(reg), 0o644); err != nil {
 		t.Fatal(err)
@@ -122,7 +127,7 @@ risks:
 	if !ok {
 		t.Fatal(text)
 	}
-	for _, want := range []string{`"description": "Desc"`, `"reviewer": "ciso"`, `"review_interval": "quarterly"`, `"next_review": "2026-09-02"`, `"residual_likelihood": "unlikely"`, `"owner": "Someone"`, `"owner_accepted_date": "2026-06-02"`} {
+	for _, want := range []string{`"description": "Desc"`, `"reviewer": "ciso"`, `"review_interval": "quarterly"`, `"next_review": "2026-09-02"`, `"residual_likelihood": "unlikely"`, `"owner": "Someone"`, `"owner_accepted_date": "2026-06-02"`, `"treatment_action"`, `"action": "Rotate keys"`, `"responsible": "Ops"`, `"status": "done"`, `"completed_date": "2026-07-01"`} {
 		if !strings.Contains(text, want) {
 			t.Errorf("register resource lacks %s:\n%s", want, text)
 		}

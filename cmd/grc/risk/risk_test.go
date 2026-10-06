@@ -182,3 +182,73 @@ func TestSummaryCommand_JSON(t *testing.T) {
 		t.Errorf("unexpected register owner breakdown: %+v", summary)
 	}
 }
+
+func TestValidateCommand_MissingTreatmentAction(t *testing.T) {
+	root := t.TempDir()
+	if err := os.CopyFS(root, os.DirFS(testdataDir())); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "risk-register", "platform.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := strings.Index(string(data), "    treatment_action:")
+	j := strings.Index(string(data), "    tracking:")
+	if i < 0 || j < i {
+		t.Fatal("fixture has no treatment_action to remove")
+	}
+	stripped := string(data)[:i] + string(data)[j:]
+	if err := os.WriteFile(path, []byte(stripped), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	parent := &cobra.Command{Use: "grc"}
+	parent.PersistentFlags().String("root", root, "root")
+	parent.AddCommand(riskcmd.NewCommand())
+	parent.SetArgs([]string{"risk", "validate"})
+
+	old := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	err = parent.Execute()
+	w.Close()
+	os.Stdout = old
+	var buf bytes.Buffer
+	io.Copy(&buf, r)
+
+	if err == nil {
+		t.Fatal("expected validation to fail for a non-draft risk without treatment_action")
+	}
+	if !strings.Contains(buf.String(), "missing treatment_action") {
+		t.Errorf("expected 'missing treatment_action' problem, got:\n%s", buf.String())
+	}
+}
+
+func TestListCommand_TreatmentAction(t *testing.T) {
+	out := runRisk(t, "list", "--format", "json")
+	var entries []riskcmd.RiskEntry
+	if err := json.Unmarshal([]byte(out), &entries); err != nil {
+		t.Fatalf("invalid JSON: %v", err)
+	}
+	if len(entries) != 1 || entries[0].TreatmentStatus != "in_progress" || entries[0].TreatmentAction == nil || entries[0].TreatmentAction.Responsible != "Test Owner" {
+		t.Errorf("treatment action not listed: %+v", entries)
+	}
+	if !strings.Contains(out, `"treatment_status": "in_progress"`) || !strings.Contains(out, `"due_date": "2026-12-01"`) {
+		t.Errorf("JSON lacks treatment fields:\n%s", out)
+	}
+}
+
+func TestSummaryCommand_TreatmentStatus(t *testing.T) {
+	out := runRisk(t, "summary", "--format", "json")
+	var summary riskcmd.RiskSummary
+	if err := json.Unmarshal([]byte(out), &summary); err != nil {
+		t.Fatal(err)
+	}
+	if summary.ByTreatmentStatus["in_progress"] != 1 {
+		t.Errorf("unexpected treatment breakdown: %+v", summary.ByTreatmentStatus)
+	}
+	if text := runRisk(t, "summary"); !strings.Contains(text, "in_progress") {
+		t.Errorf("text summary lacks treatment status:\n%s", text)
+	}
+}

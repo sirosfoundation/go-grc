@@ -239,3 +239,75 @@ func TestDecisionProblems(t *testing.T) {
 		}
 	}
 }
+
+func TestTreatmentProblems(t *testing.T) {
+	ok := func(mod func(*TreatmentAction)) *TreatmentAction {
+		ta := &TreatmentAction{Action: "patch", Responsible: "ops", Status: TreatmentOpen}
+		if mod != nil {
+			mod(ta)
+		}
+		return ta
+	}
+	cases := []struct {
+		name string
+		r    Risk
+		want int
+	}{
+		{"accepted without treatment", Risk{Status: StatusAccepted}, 1},
+		{"monitoring without treatment", Risk{Status: StatusMonitoring}, 1},
+		{"transferred without treatment", Risk{Status: StatusTransferred}, 1},
+		{"draft without treatment", Risk{Status: StatusDraft}, 0},
+		{"valid open", Risk{Status: StatusAccepted, TreatmentAction: ok(nil)}, 0},
+		{"valid in progress with due date", Risk{Status: StatusAccepted, TreatmentAction: ok(func(a *TreatmentAction) { a.Status = TreatmentInProgress; a.DueDate = "2026-12-01" })}, 0},
+		{"valid done", Risk{Status: StatusAccepted, TreatmentAction: ok(func(a *TreatmentAction) { a.Status = TreatmentDone; a.CompletedDate = "2026-10-01" })}, 0},
+		{"missing action", Risk{Status: StatusAccepted, TreatmentAction: ok(func(a *TreatmentAction) { a.Action = " " })}, 1},
+		{"missing responsible", Risk{Status: StatusAccepted, TreatmentAction: ok(func(a *TreatmentAction) { a.Responsible = "" })}, 1},
+		{"missing status", Risk{Status: StatusAccepted, TreatmentAction: ok(func(a *TreatmentAction) { a.Status = "" })}, 1},
+		{"invalid status", Risk{Status: StatusAccepted, TreatmentAction: ok(func(a *TreatmentAction) { a.Status = "finished" })}, 1},
+		{"bad due date", Risk{Status: StatusAccepted, TreatmentAction: ok(func(a *TreatmentAction) { a.DueDate = "next week" })}, 1},
+		{"bad completed date", Risk{Status: StatusAccepted, TreatmentAction: ok(func(a *TreatmentAction) { a.Status = TreatmentDone; a.CompletedDate = "2026/10/01" })}, 1},
+		{"done without completed date", Risk{Status: StatusAccepted, TreatmentAction: ok(func(a *TreatmentAction) { a.Status = TreatmentDone })}, 1},
+		{"open with completed date", Risk{Status: StatusAccepted, TreatmentAction: ok(func(a *TreatmentAction) { a.CompletedDate = "2026-10-01" })}, 1},
+		{"in progress with completed date", Risk{Status: StatusAccepted, TreatmentAction: ok(func(a *TreatmentAction) { a.Status = TreatmentInProgress; a.CompletedDate = "2026-10-01" })}, 1},
+		{"draft empty block is validated", Risk{Status: StatusDraft, TreatmentAction: &TreatmentAction{}}, 3},
+		{"draft valid block", Risk{Status: StatusDraft, TreatmentAction: ok(nil)}, 0},
+		{"draft invalid block", Risk{Status: StatusDraft, TreatmentAction: ok(func(a *TreatmentAction) { a.Status = TreatmentDone })}, 1},
+	}
+	for _, c := range cases {
+		if got := c.r.TreatmentProblems(); len(got) != c.want {
+			t.Errorf("%s: want %d problems, got %v", c.name, c.want, got)
+		}
+	}
+}
+
+func TestLoadTreatmentAction(t *testing.T) {
+	dir := t.TempDir()
+	content := `risk_register:
+  id: platform
+risks:
+  - id: R1
+    status: accepted
+    treatment_action:
+      action: "do it"
+      responsible: "ops"
+      status: done
+      due_date: "2026-11-01"
+      completed_date: "2026-10-01"
+  - id: R2
+    status: draft
+`
+	if err := os.WriteFile(filepath.Join(dir, "p.yaml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	set, err := Load(dir, []string{"p.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ta := set.RisksByID["R1"].Risk.TreatmentAction
+	if ta == nil || ta.Action != "do it" || ta.Responsible != "ops" || ta.Status != TreatmentDone || ta.DueDate != "2026-11-01" || ta.CompletedDate != "2026-10-01" {
+		t.Errorf("treatment_action not parsed: %+v", ta)
+	}
+	if set.RisksByID["R2"].Risk.TreatmentAction != nil {
+		t.Error("R2 should have no treatment_action")
+	}
+}

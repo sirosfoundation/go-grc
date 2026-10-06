@@ -198,6 +198,9 @@ func run(root string) error {
 				for _, p := range r.AssessmentProblems() {
 					add(fmt.Sprintf("risk %s: %s", r.ID, p))
 				}
+				for _, p := range r.TreatmentProblems() {
+					add(fmt.Sprintf("risk %s: %s", r.ID, p))
+				}
 				if strings.TrimSpace(r.Owner) == "" {
 					add(fmt.Sprintf("risk %s: missing risk owner", r.ID))
 				}

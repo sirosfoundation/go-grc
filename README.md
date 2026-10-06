@@ -84,6 +84,23 @@ that `severity` and `residual_severity` equal the level derived from them
 (consequence × likelihood: e.g. medium × possible = medium, medium × unlikely
 = low), so the recorded levels cannot drift from the assessment.
 
+Every risk that is not a `draft` must also record a `treatment_action`: what is
+done to treat it, who does it, and its status. A draft may omit it but is
+validated if present.
+
+```yaml
+treatment_action:
+  action: "what is being done"            # required
+  responsible: "person or role doing it"  # required
+  status: open | in_progress | done       # required
+  due_date: "YYYY-MM-DD"                  # optional target date
+  completed_date: "YYYY-MM-DD"            # required when status is done; must not be set otherwise
+```
+
+It is rendered on the risk page (with the status in the index), included in
+`grc risk list --format json` and the `grc://risk/register` MCP resource, and
+`grc risk summary` counts risks by treatment status.
+
 ### Year-cycle calendar
 
 Recurring GRC activities (reviews, audits, penetration tests) can be loaded

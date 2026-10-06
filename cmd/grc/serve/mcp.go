@@ -299,23 +299,24 @@ func registerResources(s *mcpserver.MCPServer, data *complianceData) {
 			// belong to, so a client can check conformity with the
 			// methodology without mistaking omitted fields for missing data.
 			type riskEntry struct {
-				ID                   string          `json:"id"`
-				Register             registerMeta    `json:"register"`
-				Title                string          `json:"title"`
-				Owner                string          `json:"owner"`
-				FindingID            string          `json:"finding_id"`
-				Profiles             []string        `json:"profiles,omitempty"`
-				Description          string          `json:"description"`
-				Consequence          string          `json:"consequence,omitempty"`
-				Likelihood           string          `json:"likelihood,omitempty"`
-				ResidualLikelihood   string          `json:"residual_likelihood,omitempty"`
-				Severity             string          `json:"severity"`
-				ResidualSeverity     string          `json:"residual_severity"`
-				Status               string          `json:"status"`
-				CompensatingControls []string        `json:"compensating_controls"`
-				ResidualRisk         string          `json:"residual_risk"`
-				Decision             risk.Decision   `json:"decision"`
-				Tracking             *audit.IssueRef `json:"tracking,omitempty"`
+				ID                   string                `json:"id"`
+				Register             registerMeta          `json:"register"`
+				Title                string                `json:"title"`
+				Owner                string                `json:"owner"`
+				FindingID            string                `json:"finding_id"`
+				Profiles             []string              `json:"profiles,omitempty"`
+				Description          string                `json:"description"`
+				Consequence          string                `json:"consequence,omitempty"`
+				Likelihood           string                `json:"likelihood,omitempty"`
+				ResidualLikelihood   string                `json:"residual_likelihood,omitempty"`
+				Severity             string                `json:"severity"`
+				ResidualSeverity     string                `json:"residual_severity"`
+				Status               string                `json:"status"`
+				CompensatingControls []string              `json:"compensating_controls"`
+				ResidualRisk         string                `json:"residual_risk"`
+				Decision             risk.Decision         `json:"decision"`
+				TreatmentAction      *risk.TreatmentAction `json:"treatment_action,omitempty"`
+				Tracking             *audit.IssueRef       `json:"tracking,omitempty"`
 			}
 			var risks []riskEntry
 			for id, ref := range data.risks.RisksByID {
@@ -338,6 +339,7 @@ func registerResources(s *mcpserver.MCPServer, data *complianceData) {
 					CompensatingControls: r.CompensatingControls,
 					ResidualRisk:         r.ResidualRisk,
 					Decision:             r.Decision,
+					TreatmentAction:      r.TreatmentAction,
 					Tracking:             r.Tracking,
 				})
 			}

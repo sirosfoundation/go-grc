@@ -108,11 +108,19 @@ func TestRenderCommand_Private(t *testing.T) {
 	if !strings.Contains(string(page), "| **Risk Owner** | Test Owner |") {
 		t.Errorf("risk page does not show the risk owner:\n%s", page)
 	}
+	for _, want := range []string{"## Treatment action", "| **Responsible** | Test Owner |", "| **Treatment Status** | in_progress |", "| **Due Date** | 2026-12-01 |"} {
+		if !strings.Contains(string(page), want) {
+			t.Errorf("risk page lacks %q:\n%s", want, page)
+		}
+	}
 	index, err := os.ReadFile(filepath.Join(riskDir, "index.md"))
 	if err != nil {
 		t.Fatalf("reading risk index: %v", err)
 	}
 	if !strings.Contains(string(index), "| Test Owner |") {
 		t.Errorf("risk index does not show the risk owner:\n%s", index)
+	}
+	if !strings.Contains(string(index), "| Treatment |") || !strings.Contains(string(index), "| in_progress |") {
+		t.Errorf("risk index lacks the treatment column:\n%s", index)
 	}
 }

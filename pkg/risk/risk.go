@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -18,6 +20,30 @@ const (
 	StatusMonitoring  = "monitoring"
 	StatusDraft       = "draft" // proposed entry awaiting a treatment decision
 )
+
+// Treatment action status constants.
+const (
+	TreatmentOpen       = "open"
+	TreatmentInProgress = "in_progress"
+	TreatmentDone       = "done"
+)
+
+// ValidTreatmentStatuses lists valid treatment action statuses.
+var ValidTreatmentStatuses = map[string]bool{
+	TreatmentOpen:       true,
+	TreatmentInProgress: true,
+	TreatmentDone:       true,
+}
+
+// TreatmentAction records what is done to treat a risk, who does it, and its
+// status (and completion date once done).
+type TreatmentAction struct {
+	Action        string `yaml:"action" json:"action"`                                     // what is being done (required)
+	Responsible   string `yaml:"responsible" json:"responsible"`                           // person or role doing it (required)
+	Status        string `yaml:"status" json:"status"`                                     // open | in_progress | done (required)
+	DueDate       string `yaml:"due_date,omitempty" json:"due_date,omitempty"`             // YYYY-MM-DD target date (optional)
+	CompletedDate string `yaml:"completed_date,omitempty" json:"completed_date,omitempty"` // YYYY-MM-DD; required when done, forbidden otherwise
+}
 
 // RegisterHeader holds metadata for a risk register file.
 type RegisterHeader struct {
@@ -44,22 +70,23 @@ type Decision struct {
 // Risk represents a single risk register entry (accepted, transferred,
 // monitoring, or a draft proposal awaiting a treatment decision).
 type Risk struct {
-	ID                   string          `yaml:"id"`
-	Finding              string          `yaml:"finding"`            // finding ID
-	Profiles             []string        `yaml:"profiles,omitempty"` // empty = all profiles
-	Title                string          `yaml:"title"`
-	Owner                string          `yaml:"owner"`                         // person or role accountable for the risk (required)
-	Consequence          string          `yaml:"consequence,omitempty"`         // low | medium | high | critical
-	Likelihood           string          `yaml:"likelihood,omitempty"`          // unlikely | possible | likely, before compensating controls
-	ResidualLikelihood   string          `yaml:"residual_likelihood,omitempty"` // same scale, after compensating controls
-	Severity             string          `yaml:"severity"`                      // original severity
-	ResidualSeverity     string          `yaml:"residual_severity"`             // after compensating controls
-	Status               string          `yaml:"status"`                        // accepted | transferred | monitoring | draft
-	Description          string          `yaml:"description"`
-	CompensatingControls []string        `yaml:"compensating_controls"`
-	ResidualRisk         string          `yaml:"residual_risk"`
-	Decision             Decision        `yaml:"decision"`
-	Tracking             *audit.IssueRef `yaml:"tracking,omitempty"`
+	ID                   string           `yaml:"id"`
+	Finding              string           `yaml:"finding"`            // finding ID
+	Profiles             []string         `yaml:"profiles,omitempty"` // empty = all profiles
+	Title                string           `yaml:"title"`
+	Owner                string           `yaml:"owner"`                         // person or role accountable for the risk (required)
+	Consequence          string           `yaml:"consequence,omitempty"`         // low | medium | high | critical
+	Likelihood           string           `yaml:"likelihood,omitempty"`          // unlikely | possible | likely, before compensating controls
+	ResidualLikelihood   string           `yaml:"residual_likelihood,omitempty"` // same scale, after compensating controls
+	Severity             string           `yaml:"severity"`                      // original severity
+	ResidualSeverity     string           `yaml:"residual_severity"`             // after compensating controls
+	Status               string           `yaml:"status"`                        // accepted | transferred | monitoring | draft
+	Description          string           `yaml:"description"`
+	CompensatingControls []string         `yaml:"compensating_controls"`
+	ResidualRisk         string           `yaml:"residual_risk"`
+	Decision             Decision         `yaml:"decision"`
+	TreatmentAction      *TreatmentAction `yaml:"treatment_action,omitempty"` // required unless status is draft
+	Tracking             *audit.IssueRef  `yaml:"tracking,omitempty"`
 }
 
 // RegisterFile is the top-level structure of a risk register YAML file.
@@ -221,5 +248,45 @@ func (r *Risk) DecisionProblems() []string {
 			problems = append(problems, fmt.Sprintf("decision.owner_accepted_date %q is not a YYYY-MM-DD date", d))
 		}
 	}
+	return problems
+}
+
+// TreatmentProblems checks the treatment action: every risk that is not a
+// draft must record what is done, who does it and its status; a draft may omit
+// the block but is validated when present. Dates must be YYYY-MM-DD, a done
+// action must record completed_date, and any other status must not.
+func (r *Risk) TreatmentProblems() []string {
+	t := r.TreatmentAction
+	if t == nil {
+		if r.Status == StatusDraft {
+			return nil
+		}
+		return []string{"missing treatment_action"}
+	}
+	var problems []string
+	if strings.TrimSpace(t.Action) == "" {
+		problems = append(problems, "treatment_action.action is missing")
+	}
+	if strings.TrimSpace(t.Responsible) == "" {
+		problems = append(problems, "treatment_action.responsible is missing")
+	}
+	if !ValidTreatmentStatuses[t.Status] {
+		problems = append(problems, fmt.Sprintf("treatment_action.status %q is invalid (want open, in_progress or done)", t.Status))
+	}
+	for name, d := range map[string]string{"due_date": t.DueDate, "completed_date": t.CompletedDate} {
+		if d == "" {
+			continue
+		}
+		if _, err := time.Parse("2006-01-02", d); err != nil {
+			problems = append(problems, fmt.Sprintf("treatment_action.%s %q is not a YYYY-MM-DD date", name, d))
+		}
+	}
+	switch {
+	case t.Status == TreatmentDone && t.CompletedDate == "":
+		problems = append(problems, "treatment_action.status is done but completed_date is missing")
+	case t.Status != TreatmentDone && t.CompletedDate != "":
+		problems = append(problems, "treatment_action.completed_date is set but status is not done")
+	}
+	sort.Strings(problems)
 	return problems
 }
