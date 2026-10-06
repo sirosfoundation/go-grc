@@ -57,7 +57,7 @@ Supported frameworks:
 
 ### Risk register
 
-Accepted risks are tracked in YAML files under `risk-register/`. Each risk
+Risks (accepted, transferred, monitoring, or draft proposals) are tracked in YAML files under `risk-register/`. Each risk
 links to a finding, documents compensating controls, residual severity, and
 review intervals. The rendered site shows an overview with severity badges
 and per-risk detail pages.

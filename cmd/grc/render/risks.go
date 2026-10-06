@@ -32,7 +32,7 @@ func generateRiskRegister(cfg *config.Config, risks *risk.RiskSet) error {
 func renderRiskIndex(risks *risk.RiskSet) string {
 	var b strings.Builder
 	b.WriteString("---\nsidebar_label: Risk Register\nsidebar_position: 1\ntitle: Risk Register\n---\n\n# Risk Register\n\n")
-	b.WriteString("Accepted risks with compensating controls and residual risk assessment.\n\n")
+	b.WriteString("Risks with owners, compensating controls and residual risk assessment (accepted, transferred, monitoring, or draft proposals awaiting a decision).\n\n")
 
 	for _, file := range risks.Files {
 		reg := file.Data.Register

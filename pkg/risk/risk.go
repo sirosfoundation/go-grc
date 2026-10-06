@@ -36,7 +36,8 @@ type Decision struct {
 	ReviewInterval string `yaml:"review_interval"` // quarterly | annually | etc.
 }
 
-// Risk represents a single accepted/transferred risk entry.
+// Risk represents a single risk register entry (accepted, transferred,
+// monitoring, or a draft proposal awaiting a treatment decision).
 type Risk struct {
 	ID                   string          `yaml:"id"`
 	Finding              string          `yaml:"finding"`            // finding ID

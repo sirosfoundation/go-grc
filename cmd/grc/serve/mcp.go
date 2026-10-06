@@ -240,7 +240,7 @@ func registerResources(s *mcpserver.MCPServer, data *complianceData) {
 	// Risk register
 	s.AddResource(
 		mcp.NewResource("grc://risk/register", "Risk Register",
-			mcp.WithResourceDescription("Accepted and transferred risks with residual severity and compensating controls"),
+			mcp.WithResourceDescription("Risk register entries (accepted, transferred, monitoring, draft) with owner, residual severity and compensating controls"),
 			mcp.WithMIMEType("application/json"),
 		),
 		func(_ context.Context, _ mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
@@ -587,7 +587,7 @@ func registerTools(s *mcpserver.MCPServer, data *complianceData) {
 			for _, ref := range data.risks.RisksByID {
 				r := ref.Risk
 				byStatus[r.Status]++
-				if r.Owner == "" {
+				if strings.TrimSpace(r.Owner) == "" {
 					byOwner["(unassigned)"]++
 				} else {
 					byOwner[r.Owner]++
