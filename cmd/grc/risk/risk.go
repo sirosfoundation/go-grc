@@ -1,6 +1,7 @@
 package risk
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -293,11 +294,7 @@ func runSummary(root, format string) error {
 				summary.ByOwner[r.Owner]++
 			}
 			summary.ByStatus[r.Status]++
-			ts := treatmentStatus(&r)
-			if ts == "" {
-				ts = "none"
-			}
-			summary.ByTreatmentStatus[ts]++
+			summary.ByTreatmentStatus[cmp.Or(treatmentStatus(&r), "none")]++
 		}
 	}
 

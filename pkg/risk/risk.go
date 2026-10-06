@@ -45,6 +45,9 @@ type TreatmentAction struct {
 	CompletedDate string `yaml:"completed_date,omitempty" json:"completed_date,omitempty"` // YYYY-MM-DD; required when done, forbidden otherwise
 }
 
+// DateLayout is the YYYY-MM-DD layout used for all register dates.
+const DateLayout = "2006-01-02"
+
 // RegisterHeader holds metadata for a risk register file.
 type RegisterHeader struct {
 	ID         string `yaml:"id"`
@@ -178,7 +181,7 @@ func IsOverdueRegister(reg RegisterHeader) bool {
 	if reg.NextReview == "" {
 		return false
 	}
-	t, err := time.Parse("2006-01-02", reg.NextReview)
+	t, err := time.Parse(DateLayout, reg.NextReview)
 	if err != nil {
 		return false
 	}
@@ -244,7 +247,7 @@ func (r *Risk) DecisionProblems() []string {
 	case d == "" && r.Status == StatusAccepted:
 		problems = append(problems, "accepted risk is missing decision.owner_accepted_date")
 	case d != "":
-		if _, err := time.Parse("2006-01-02", d); err != nil {
+		if _, err := time.Parse(DateLayout, d); err != nil {
 			problems = append(problems, fmt.Sprintf("decision.owner_accepted_date %q is not a YYYY-MM-DD date", d))
 		}
 	}
@@ -277,7 +280,7 @@ func (r *Risk) TreatmentProblems() []string {
 		if d == "" {
 			continue
 		}
-		if _, err := time.Parse("2006-01-02", d); err != nil {
+		if _, err := time.Parse(DateLayout, d); err != nil {
 			problems = append(problems, fmt.Sprintf("treatment_action.%s %q is not a YYYY-MM-DD date", name, d))
 		}
 	}

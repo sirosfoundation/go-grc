@@ -124,3 +124,50 @@ func TestRenderCommand_Private(t *testing.T) {
 		t.Errorf("risk index lacks the treatment column:\n%s", index)
 	}
 }
+
+func TestRenderCommand_RiskWithoutTreatmentAction(t *testing.T) {
+	tmpDir := t.TempDir()
+	if err := copyDir(testdataDir(), tmpDir); err != nil {
+		t.Fatalf("copying testdata: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(tmpDir, "site", "docs"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(tmpDir, "risk-register", "platform.yaml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := strings.Index(string(data), "    treatment_action:")
+	j := strings.Index(string(data), "    tracking:")
+	if i < 0 || j < i {
+		t.Fatal("fixture has no treatment_action to remove")
+	}
+	if err := os.WriteFile(path, []byte(string(data)[:i]+string(data)[j:]), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	parent := &cobra.Command{Use: "grc"}
+	parent.PersistentFlags().String("root", tmpDir, "root")
+	parent.AddCommand(render.NewCommand())
+	parent.SetArgs([]string{"render", "--profile", "private"})
+	if err := parent.Execute(); err != nil {
+		t.Fatalf("render failed: %v", err)
+	}
+
+	riskDir := filepath.Join(tmpDir, "site", "docs", "risk-register")
+	page, err := os.ReadFile(filepath.Join(riskDir, "rsk_p_001.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(page), "No treatment action recorded") {
+		t.Errorf("risk page does not flag the missing treatment action:\n%s", page)
+	}
+	index, err := os.ReadFile(filepath.Join(riskDir, "index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(index), "| none |") {
+		t.Errorf("risk index does not show treatment none:\n%s", index)
+	}
+}
