@@ -546,6 +546,11 @@ func TestFindingStatisticsTool(t *testing.T) {
 
 func TestRiskSummaryTool(t *testing.T) {
 	d := loadedData(t)
+	// Pin the review date far in the future so the "not overdue" case does not
+	// depend on the wall clock.
+	for _, lf := range d.risks.Files {
+		lf.Data.Register.NextReview = "2999-01-01"
+	}
 	s := fullServer(d)
 	var out struct {
 		Methodology string         `json:"methodology"`
