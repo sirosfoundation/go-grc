@@ -10,16 +10,21 @@ import (
 )
 
 func TestOSCALCommand(t *testing.T) {
-	// Use the testdata directory
-	root := filepath.Join("..", "..", "..", "testdata")
+	// Work on a private copy of the testdata: writing the OSCAL output into
+	// the shared fixture races with other tests that copy or read it.
+	root := t.TempDir()
+	if err := os.CopyFS(root, os.DirFS(filepath.Join("..", "..", "..", "testdata"))); err != nil {
+		t.Fatalf("copying testdata: %v", err)
+	}
 	cfg, err := config.New(root)
 	if err != nil {
 		t.Fatalf("loading config: %v", err)
 	}
 
 	// Ensure oscal dir exists
-	os.MkdirAll(cfg.OSCALDir, 0o755)
-	defer os.RemoveAll(cfg.OSCALDir)
+	if err := os.MkdirAll(cfg.OSCALDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	err = run(root)
 	if err != nil {
