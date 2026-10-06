@@ -259,12 +259,12 @@ func registerResources(s *mcpserver.MCPServer, data *complianceData) {
 		func(_ context.Context, _ mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 			data.mu.RLock()
 			defer data.mu.RUnlock()
-			if data.cfg == nil || data.cfg.RiskMethodologyPath == "" {
+			if data.cfg == nil {
 				return nil, fmt.Errorf("no risk methodology configured (risk_register.methodology)")
 			}
-			content, err := os.ReadFile(data.cfg.RiskMethodologyPath)
+			content, err := data.cfg.ReadRiskMethodology()
 			if err != nil {
-				return nil, fmt.Errorf("reading risk methodology: %w", err)
+				return nil, err
 			}
 			return []mcp.ResourceContents{
 				mcp.TextResourceContents{
@@ -279,7 +279,7 @@ func registerResources(s *mcpserver.MCPServer, data *complianceData) {
 	// Risk register
 	s.AddResource(
 		mcp.NewResource("grc://risk/register", "Risk Register",
-			mcp.WithResourceDescription("Governed by the risk methodology (grc://risk/methodology), which is authoritative. Risk register entries (accepted, transferred, monitoring, draft) with owner, residual severity and compensating controls"),
+			mcp.WithResourceDescription("Complete risk entries with register metadata (review dates, team owner). Governed by the risk methodology (grc://risk/methodology), which is authoritative. Risk register entries (accepted, transferred, monitoring, draft) with owner, residual severity and compensating controls"),
 			mcp.WithMIMEType("application/json"),
 		),
 		func(_ context.Context, _ mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
@@ -288,26 +288,57 @@ func registerResources(s *mcpserver.MCPServer, data *complianceData) {
 			if data.risks == nil {
 				return jsonResource("grc://risk/register", map[string]any{"risks": []any{}})
 			}
-			type riskSummary struct {
-				ID                   string   `json:"id"`
-				Owner                string   `json:"owner"`
-				FindingID            string   `json:"finding_id"`
-				Severity             string   `json:"severity"`
-				ResidualSeverity     string   `json:"residual_severity"`
-				Status               string   `json:"status"`
-				CompensatingControls []string `json:"compensating_controls"`
+			type registerMeta struct {
+				ID         string `json:"id"`
+				Title      string `json:"title"`
+				Owner      string `json:"owner"`
+				LastReview string `json:"last_review"`
+				NextReview string `json:"next_review"`
 			}
-			var risks []riskSummary
+			// Full entries plus the metadata of the register file they
+			// belong to, so a client can check conformity with the
+			// methodology without mistaking omitted fields for missing data.
+			type riskEntry struct {
+				ID                   string          `json:"id"`
+				Register             registerMeta    `json:"register"`
+				Title                string          `json:"title"`
+				Owner                string          `json:"owner"`
+				FindingID            string          `json:"finding_id"`
+				Profiles             []string        `json:"profiles,omitempty"`
+				Description          string          `json:"description"`
+				Consequence          string          `json:"consequence,omitempty"`
+				Likelihood           string          `json:"likelihood,omitempty"`
+				ResidualLikelihood   string          `json:"residual_likelihood,omitempty"`
+				Severity             string          `json:"severity"`
+				ResidualSeverity     string          `json:"residual_severity"`
+				Status               string          `json:"status"`
+				CompensatingControls []string        `json:"compensating_controls"`
+				ResidualRisk         string          `json:"residual_risk"`
+				Decision             risk.Decision   `json:"decision"`
+				Tracking             *audit.IssueRef `json:"tracking,omitempty"`
+			}
+			var risks []riskEntry
 			for id, ref := range data.risks.RisksByID {
 				r := ref.Risk
-				risks = append(risks, riskSummary{
+				reg := ref.File.Data.Register
+				risks = append(risks, riskEntry{
 					ID:                   id,
+					Register:             registerMeta{reg.ID, reg.Title, reg.Owner, reg.LastReview, reg.NextReview},
+					Title:                r.Title,
 					Owner:                r.Owner,
 					FindingID:            r.Finding,
+					Profiles:             r.Profiles,
+					Description:          r.Description,
+					Consequence:          r.Consequence,
+					Likelihood:           r.Likelihood,
+					ResidualLikelihood:   r.ResidualLikelihood,
 					Severity:             r.Severity,
 					ResidualSeverity:     r.ResidualSeverity,
 					Status:               r.Status,
 					CompensatingControls: r.CompensatingControls,
+					ResidualRisk:         r.ResidualRisk,
+					Decision:             r.Decision,
+					Tracking:             r.Tracking,
 				})
 			}
 			sort.Slice(risks, func(i, j int) bool {

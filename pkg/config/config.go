@@ -334,3 +334,32 @@ func (c *Config) HasProfile(id string) bool {
 	}
 	return false
 }
+
+// ReadRiskMethodology reads the configured risk methodology document. The
+// path is resolved through symlinks (including in parent directories) and must
+// stay inside the project root and be a regular file, so a symlink cannot be
+// used to read files outside the project.
+func (c *Config) ReadRiskMethodology() ([]byte, error) {
+	if c.RiskMethodologyPath == "" {
+		return nil, fmt.Errorf("no risk methodology configured (risk_register.methodology)")
+	}
+	root, err := filepath.EvalSymlinks(c.Root)
+	if err != nil {
+		return nil, fmt.Errorf("resolving project root: %w", err)
+	}
+	path, err := filepath.EvalSymlinks(c.RiskMethodologyPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolving risk methodology: %w", err)
+	}
+	if rel, err := filepath.Rel(root, path); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("risk methodology %q resolves outside the project root", c.RiskRegister.Methodology)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading risk methodology: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("risk methodology %q is not a regular file", c.RiskRegister.Methodology)
+	}
+	return os.ReadFile(path)
+}

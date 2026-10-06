@@ -11,6 +11,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/sirosfoundation/go-grc/pkg/config"
+	"github.com/sirosfoundation/go-grc/pkg/risk"
 )
 
 func readResource(t *testing.T, data *complianceData, uri string) (string, bool) {
@@ -77,6 +78,52 @@ func TestInstructionsMakeMethodologyAuthoritative(t *testing.T) {
 	for _, want := range []string{"grc://risk/methodology", "authoritative", "must not diverge", "same change"} {
 		if !strings.Contains(serverInstructions, want) {
 			t.Errorf("server instructions lack %q", want)
+		}
+	}
+}
+
+func TestRiskRegisterResourceIsComplete(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "rr"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reg := `risk_register:
+  id: platform
+  title: Platform
+  owner: platform
+  last_review: "2026-06-02"
+  next_review: "2026-09-02"
+risks:
+  - id: R1
+    finding: F1
+    title: T
+    owner: Someone
+    description: Desc
+    consequence: medium
+    likelihood: possible
+    residual_likelihood: unlikely
+    severity: medium
+    residual_severity: low
+    status: accepted
+    decision:
+      date: "2026-06-01"
+      reviewer: ciso
+      review_interval: quarterly
+`
+	if err := os.WriteFile(filepath.Join(root, "rr", "platform.yaml"), []byte(reg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rs, err := risk.Load(filepath.Join(root, "rr"), []string{"platform.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, ok := readResource(t, &complianceData{cfg: &config.Config{}, risks: rs}, "grc://risk/register")
+	if !ok {
+		t.Fatal(text)
+	}
+	for _, want := range []string{`"description": "Desc"`, `"reviewer": "ciso"`, `"review_interval": "quarterly"`, `"next_review": "2026-09-02"`, `"residual_likelihood": "unlikely"`, `"owner": "Someone"`} {
+		if !strings.Contains(text, want) {
+			t.Errorf("register resource lacks %s:\n%s", want, text)
 		}
 	}
 }

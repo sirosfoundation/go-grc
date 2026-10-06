@@ -174,8 +174,8 @@ func run(root string) error {
 
 	// The risk methodology, when configured, is authoritative for the register
 	if cfg.RiskMethodologyPath != "" {
-		if _, err := os.Stat(cfg.RiskMethodologyPath); err != nil {
-			add(fmt.Sprintf("risk register: methodology %q not readable: %v", cfg.RiskRegister.Methodology, err))
+		if _, err := cfg.ReadRiskMethodology(); err != nil {
+			add(fmt.Sprintf("risk register: methodology %q not usable: %v", cfg.RiskRegister.Methodology, err))
 		}
 	}
 

@@ -30,10 +30,10 @@ type RegisterHeader struct {
 
 // Decision records the formal risk acceptance decision.
 type Decision struct {
-	Date           string `yaml:"date"`
-	Rationale      string `yaml:"rationale"`
-	Reviewer       string `yaml:"reviewer"`
-	ReviewInterval string `yaml:"review_interval"` // quarterly | annually | etc.
+	Date           string `yaml:"date" json:"date"`
+	Rationale      string `yaml:"rationale" json:"rationale"`
+	Reviewer       string `yaml:"reviewer" json:"reviewer"`
+	ReviewInterval string `yaml:"review_interval" json:"review_interval"` // quarterly | annually | etc.
 }
 
 // Risk represents a single risk register entry (accepted, transferred,
