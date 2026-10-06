@@ -26,6 +26,7 @@ risks:
       date: "2026-06-01"
       rationale: "Mitigated by CSP and short session lifetime"
       reviewer: "leifj"
+      owner_accepted_date: "2026-06-01"
       review_interval: "quarterly"
     tracking:
       repo: "sirosfoundation/compliance"

@@ -34,6 +34,11 @@ type Decision struct {
 	Rationale      string `yaml:"rationale" json:"rationale"`
 	Reviewer       string `yaml:"reviewer" json:"reviewer"`
 	ReviewInterval string `yaml:"review_interval" json:"review_interval"` // quarterly | annually | etc.
+
+	// OwnerAcceptedDate (YYYY-MM-DD) is when the risk owner accepted the
+	// residual risk and approved the treatment plan. Required for accepted
+	// risks; distinct from Date (the decision) and Reviewer (the CISO).
+	OwnerAcceptedDate string `yaml:"owner_accepted_date,omitempty" json:"owner_accepted_date,omitempty"`
 }
 
 // Risk represents a single risk register entry (accepted, transferred,
@@ -198,6 +203,23 @@ func (r *Risk) AssessmentProblems() []string {
 		problems = append(problems, fmt.Sprintf("invalid consequence %q / residual_likelihood %q", r.Consequence, r.ResidualLikelihood))
 	} else if rlevel != r.ResidualSeverity {
 		problems = append(problems, fmt.Sprintf("residual_severity %q does not match %s consequence x %s residual likelihood (= %s)", r.ResidualSeverity, r.Consequence, r.ResidualLikelihood, rlevel))
+	}
+	return problems
+}
+
+// DecisionProblems checks the decision record: an accepted risk must record
+// when its owner accepted the residual risk, and any recorded date must be a
+// valid YYYY-MM-DD date.
+func (r *Risk) DecisionProblems() []string {
+	var problems []string
+	d := r.Decision.OwnerAcceptedDate
+	switch {
+	case d == "" && r.Status == StatusAccepted:
+		problems = append(problems, "accepted risk is missing decision.owner_accepted_date")
+	case d != "":
+		if _, err := time.Parse("2006-01-02", d); err != nil {
+			problems = append(problems, fmt.Sprintf("decision.owner_accepted_date %q is not a YYYY-MM-DD date", d))
+		}
 	}
 	return problems
 }

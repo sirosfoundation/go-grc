@@ -79,6 +79,9 @@ func renderRiskPage(r *risk.Risk, owner string) string {
 	}
 	fmt.Fprintf(&b, "| **Decision Date** | %s |\n", r.Decision.Date)
 	fmt.Fprintf(&b, "| **Reviewer** | %s |\n", r.Decision.Reviewer)
+	if r.Decision.OwnerAcceptedDate != "" {
+		fmt.Fprintf(&b, "| **Owner Accepted** | %s |\n", r.Decision.OwnerAcceptedDate)
+	}
 	fmt.Fprintf(&b, "| **Review Interval** | %s |\n", r.Decision.ReviewInterval)
 	if r.Tracking != nil {
 		fmt.Fprintf(&b, "| **Tracking Issue** | [%s#%d](https://github.com/%s/issues/%d) |\n",

@@ -220,3 +220,22 @@ func TestAssessmentProblems(t *testing.T) {
 		}
 	}
 }
+
+func TestDecisionProblems(t *testing.T) {
+	cases := []struct {
+		name string
+		r    Risk
+		want int
+	}{
+		{"accepted without date", Risk{Status: StatusAccepted}, 1},
+		{"accepted with date", Risk{Status: StatusAccepted, Decision: Decision{OwnerAcceptedDate: "2026-06-01"}}, 0},
+		{"draft without date", Risk{Status: StatusDraft}, 0},
+		{"monitoring without date", Risk{Status: StatusMonitoring}, 0},
+		{"malformed date", Risk{Status: StatusDraft, Decision: Decision{OwnerAcceptedDate: "June 1"}}, 1},
+	}
+	for _, c := range cases {
+		if got := c.r.DecisionProblems(); len(got) != c.want {
+			t.Errorf("%s: want %d problems, got %v", c.name, c.want, got)
+		}
+	}
+}

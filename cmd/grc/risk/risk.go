@@ -182,6 +182,9 @@ func runValidate(root string) error {
 			if _, ok := audits.FindingsByID[r.Finding]; !ok {
 				problems = append(problems, fmt.Sprintf("risk %s: references unknown finding %q", r.ID, r.Finding))
 			}
+			for _, p := range r.DecisionProblems() {
+				problems = append(problems, fmt.Sprintf("risk %s: %s", r.ID, p))
+			}
 			for _, p := range r.AssessmentProblems() {
 				problems = append(problems, fmt.Sprintf("risk %s: %s", r.ID, p))
 			}
