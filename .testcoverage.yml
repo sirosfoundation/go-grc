@@ -10,6 +10,7 @@ exclude:
     - ^cmd/grc/sync/         # sync command — requires GitHub API token
     - ^cmd/grc/serve/git\.go$ # git exec helper — requires git repo
     - ^cmd/grc/render/yearcycle\.go$ # SVG year-cycle rendering — requires full render context
+    - ^internal/testutil/    # test-only helpers
 override:
   # CLI command packages: heavy integration logic, error paths require
   # complex test fixtures. Lower package threshold to 70%.

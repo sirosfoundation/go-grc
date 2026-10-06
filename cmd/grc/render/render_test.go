@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/sirosfoundation/go-grc/cmd/grc/render"
+	"github.com/sirosfoundation/go-grc/internal/testutil"
 )
 
 func testdataDir() string {
@@ -108,11 +109,50 @@ func TestRenderCommand_Private(t *testing.T) {
 	if !strings.Contains(string(page), "| **Risk Owner** | Test Owner |") {
 		t.Errorf("risk page does not show the risk owner:\n%s", page)
 	}
+	for _, want := range []string{"## Treatment action", "| **Responsible** | Test Owner |", "| **Treatment Status** | in_progress |", "| **Due Date** | 2026-12-01 |"} {
+		if !strings.Contains(string(page), want) {
+			t.Errorf("risk page lacks %q:\n%s", want, page)
+		}
+	}
 	index, err := os.ReadFile(filepath.Join(riskDir, "index.md"))
 	if err != nil {
 		t.Fatalf("reading risk index: %v", err)
 	}
 	if !strings.Contains(string(index), "| Test Owner |") {
 		t.Errorf("risk index does not show the risk owner:\n%s", index)
+	}
+	if !strings.Contains(string(index), "| Treatment |") || !strings.Contains(string(index), "| in_progress |") {
+		t.Errorf("risk index lacks the treatment column:\n%s", index)
+	}
+}
+
+func TestRenderCommand_RiskWithoutTreatmentAction(t *testing.T) {
+	tmpDir := testutil.CopyFixtureWithoutTreatment(t, testdataDir())
+	if err := os.MkdirAll(filepath.Join(tmpDir, "site", "docs"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	parent := &cobra.Command{Use: "grc"}
+	parent.PersistentFlags().String("root", tmpDir, "root")
+	parent.AddCommand(render.NewCommand())
+	parent.SetArgs([]string{"render", "--profile", "private"})
+	if err := parent.Execute(); err != nil {
+		t.Fatalf("render failed: %v", err)
+	}
+
+	riskDir := filepath.Join(tmpDir, "site", "docs", "risk-register")
+	page, err := os.ReadFile(filepath.Join(riskDir, "rsk_p_001.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(page), "No treatment action recorded") {
+		t.Errorf("risk page does not flag the missing treatment action:\n%s", page)
+	}
+	index, err := os.ReadFile(filepath.Join(riskDir, "index.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(index), "| none |") {
+		t.Errorf("risk index does not show treatment none:\n%s", index)
 	}
 }

@@ -44,18 +44,18 @@ func renderRiskIndex(risks *risk.RiskSet) string {
 			b.WriteString(":::warning\nThis risk register is overdue for review.\n:::\n\n")
 		}
 
-		b.WriteString("| Risk | Finding | Owner | Severity | Residual | Status | Profiles |\n")
-		b.WriteString("|------|---------|-------|----------|----------|--------|----------|\n")
+		b.WriteString("| Risk | Finding | Owner | Severity | Residual | Status | Treatment | Profiles |\n")
+		b.WriteString("|------|---------|-------|----------|----------|--------|-----------|----------|\n")
 		for _, r := range file.Data.Risks {
 			profiles := "all"
 			if len(r.Profiles) > 0 {
 				profiles = strings.Join(r.Profiles, ", ")
 			}
-			fmt.Fprintf(&b, "| [%s](/risk-register/%s) | %s | %s | %s %s | %s %s | %s | %s |\n",
+			fmt.Fprintf(&b, "| [%s](/risk-register/%s) | %s | %s | %s %s | %s %s | %s | %s | %s |\n",
 				r.ID, idSlug(r.ID), r.Finding, riskOwnerCell(r.Owner),
 				sevIcon(r.Severity), r.Severity,
 				sevIcon(r.ResidualSeverity), r.ResidualSeverity,
-				r.Status, profiles)
+				r.Status, treatmentCell(r.TreatmentAction), profiles)
 		}
 		b.WriteString("\n")
 	}
@@ -89,6 +89,8 @@ func renderRiskPage(r *risk.Risk, owner string) string {
 	}
 	b.WriteString("\n")
 
+	b.WriteString(renderTreatment(r.TreatmentAction))
+
 	if r.Description != "" {
 		fmt.Fprintf(&b, "## Description\n\n%s\n\n", r.Description)
 	}
@@ -119,4 +121,35 @@ func riskOwnerCell(owner string) string {
 		return "**UNASSIGNED**"
 	}
 	return owner
+}
+
+// treatmentCell renders the treatment status for the index table.
+func treatmentCell(t *risk.TreatmentAction) string {
+	if t == nil || t.Status == "" {
+		return "none"
+	}
+	return t.Status
+}
+
+// renderTreatment renders the "Treatment action" section of a risk page.
+func renderTreatment(t *risk.TreatmentAction) string {
+	if t == nil {
+		return "## Treatment action\n\n_No treatment action recorded._\n\n"
+	}
+	var b strings.Builder
+	b.WriteString("## Treatment action\n\n")
+	if t.Action != "" {
+		fmt.Fprintf(&b, "%s\n\n", t.Action)
+	}
+	b.WriteString("| | |\n|---|---|\n")
+	fmt.Fprintf(&b, "| **Responsible** | %s |\n", riskOwnerCell(t.Responsible))
+	fmt.Fprintf(&b, "| **Treatment Status** | %s |\n", t.Status)
+	if t.DueDate != "" {
+		fmt.Fprintf(&b, "| **Due Date** | %s |\n", t.DueDate)
+	}
+	if t.CompletedDate != "" {
+		fmt.Fprintf(&b, "| **Completed** | %s |\n", t.CompletedDate)
+	}
+	b.WriteString("\n")
+	return b.String()
 }

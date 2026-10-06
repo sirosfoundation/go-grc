@@ -28,6 +28,11 @@ risks:
       reviewer: "leifj"
       owner_accepted_date: "2026-06-01"
       review_interval: "quarterly"
+    treatment_action:
+      action: "Enforce CSP script-src self and keep session lifetime short"
+      responsible: "Test Owner"
+      status: in_progress
+      due_date: "2026-12-01"
     tracking:
       repo: "sirosfoundation/compliance"
       number: 4

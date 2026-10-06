@@ -1,6 +1,7 @@
 package risk
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -89,6 +90,9 @@ type RiskEntry struct {
 	Severity         string   `json:"severity"`
 	ResidualSeverity string   `json:"residual_severity"`
 	Status           string   `json:"status"`
+	// TreatmentStatus is the treatment action status (open | in_progress | done); empty when none recorded.
+	TreatmentStatus string                `json:"treatment_status,omitempty"`
+	TreatmentAction *risk.TreatmentAction `json:"treatment_action,omitempty"`
 }
 
 func runList(root, owner, registerOwner, profile string, overdue bool, format string) error {
@@ -129,6 +133,8 @@ func runList(root, owner, registerOwner, profile string, overdue bool, format st
 				Severity:         r.Severity,
 				ResidualSeverity: r.ResidualSeverity,
 				Status:           r.Status,
+				TreatmentStatus:  treatmentStatus(&r),
+				TreatmentAction:  r.TreatmentAction,
 			})
 		}
 	}
@@ -186,6 +192,9 @@ func runValidate(root string) error {
 				problems = append(problems, fmt.Sprintf("risk %s: %s", r.ID, p))
 			}
 			for _, p := range r.AssessmentProblems() {
+				problems = append(problems, fmt.Sprintf("risk %s: %s", r.ID, p))
+			}
+			for _, p := range r.TreatmentProblems() {
 				problems = append(problems, fmt.Sprintf("risk %s: %s", r.ID, p))
 			}
 			if strings.TrimSpace(r.Owner) == "" {
@@ -246,8 +255,11 @@ type RiskSummary struct {
 	ByOwner         map[string]int `json:"by_owner"`          // by accountable risk owner
 	ByRegisterOwner map[string]int `json:"by_register_owner"` // by team owning the register
 	ByStatus        map[string]int `json:"by_status"`
-	Overdue         int            `json:"overdue"`
-	Unowned         int            `json:"unowned"`
+	// ByTreatmentStatus counts risks by treatment action status; risks with
+	// no treatment action are counted under "none".
+	ByTreatmentStatus map[string]int `json:"by_treatment_status"`
+	Overdue           int            `json:"overdue"`
+	Unowned           int            `json:"unowned"`
 }
 
 func runSummary(root, format string) error {
@@ -262,9 +274,10 @@ func runSummary(root, format string) error {
 	}
 
 	summary := RiskSummary{
-		ByOwner:         make(map[string]int),
-		ByRegisterOwner: make(map[string]int),
-		ByStatus:        make(map[string]int),
+		ByOwner:           make(map[string]int),
+		ByRegisterOwner:   make(map[string]int),
+		ByStatus:          make(map[string]int),
+		ByTreatmentStatus: make(map[string]int),
 	}
 
 	for _, file := range risks.Files {
@@ -281,6 +294,7 @@ func runSummary(root, format string) error {
 				summary.ByOwner[r.Owner]++
 			}
 			summary.ByStatus[r.Status]++
+			summary.ByTreatmentStatus[cmp.Or(treatmentStatus(&r), "none")]++
 		}
 	}
 
@@ -303,6 +317,9 @@ func runSummary(root, format string) error {
 	for k, v := range summary.ByStatus {
 		fmt.Printf("  %-12s %d\n", k+":", v)
 	}
+	for k, v := range summary.ByTreatmentStatus {
+		fmt.Printf("  treatment %-12s %d\n", k+":", v)
+	}
 	if summary.Overdue > 0 {
 		fmt.Printf("  Overdue:     %d\n", summary.Overdue)
 	}
@@ -315,4 +332,12 @@ func truncate(s string, max int) string {
 		return s
 	}
 	return string(r[:max-3]) + "..."
+}
+
+// treatmentStatus returns the treatment action status, or "" when none is recorded.
+func treatmentStatus(r *risk.Risk) string {
+	if r.TreatmentAction == nil {
+		return ""
+	}
+	return r.TreatmentAction.Status
 }

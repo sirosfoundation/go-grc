@@ -65,6 +65,10 @@ reviewing or editing anything under the risk register:
    entry, or propose the methodology change; do not leave them inconsistent.
 4. Every risk needs an `owner`. Only the role the methodology names may
    accept a risk; do not record an acceptance on someone's behalf.
+5. Every non-draft risk needs a `treatment_action` (`action`, `responsible`,
+   `status`: open | in_progress | done, optional `due_date`). `completed_date`
+   (YYYY-MM-DD) is required when `status` is `done` and must not be set
+   otherwise. Do not mark an action done on someone's behalf.
 
 ### 3. Update statuses
 
