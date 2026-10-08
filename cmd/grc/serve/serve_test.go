@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -190,5 +191,70 @@ func TestHealthEndpoint(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("health: status = %d, want 200", w.Code)
+	}
+}
+
+func pushRequest(t *testing.T, secret string) *http.Request {
+	t.Helper()
+	body := []byte(`{"repository":{"full_name":"org/repo"},"ref":"refs/heads/main"}`)
+	req := httptest.NewRequest(http.MethodPost, "/webhook", strings.NewReader(string(body)))
+	req.Header.Set("X-GitHub-Event", "push")
+	req.Header.Set("X-Hub-Signature-256", signPayload(body, secret))
+	return req
+}
+
+// A burst of pushes inside the debounce window must not start any rebuild
+// until the window has been quiet, and then must produce exactly one.
+func TestWebhookDebounceCoalescesBurst(t *testing.T) {
+	var runs atomic.Int32
+	wh := &webhookHandler{secret: "s", repo: "org/repo", debounce: 200 * time.Millisecond,
+		rebuildFn: func() { runs.Add(1) }}
+	for i := 0; i < 5; i++ {
+		w := httptest.NewRecorder()
+		wh.ServeHTTP(w, pushRequest(t, "s"))
+		if w.Code != http.StatusAccepted {
+			t.Fatalf("push %d: status = %d, want 202", i, w.Code)
+		}
+		time.Sleep(60 * time.Millisecond) // each push lands inside the window
+	}
+	if n := runs.Load(); n != 0 {
+		t.Fatalf("%d rebuild(s) started while pushes were still arriving", n)
+	}
+	time.Sleep(600 * time.Millisecond)
+	if n := runs.Load(); n != 1 {
+		t.Fatalf("rebuilds after burst = %d, want 1", n)
+	}
+}
+
+// A push arriving during a rebuild yields exactly one follow-up, never an
+// overlapping run.
+func TestWebhookPushDuringRebuildRunsOnceMore(t *testing.T) {
+	var runs, active, maxActive atomic.Int32
+	release := make(chan struct{})
+	wh := &webhookHandler{}
+	wh.rebuildFn = func() {
+		n := active.Add(1)
+		if n > maxActive.Load() {
+			maxActive.Store(n)
+		}
+		if runs.Add(1) == 1 {
+			<-release
+		}
+		active.Add(-1)
+	}
+	done := make(chan struct{})
+	go func() { wh.run(); close(done) }()
+	for runs.Load() < 1 {
+		time.Sleep(5 * time.Millisecond)
+	}
+	wh.run() // two more requests while the first rebuild is in flight
+	wh.run()
+	close(release)
+	<-done
+	if runs.Load() != 2 {
+		t.Errorf("rebuilds = %d, want 2 (initial + one coalesced follow-up)", runs.Load())
+	}
+	if maxActive.Load() != 1 {
+		t.Errorf("max concurrent rebuilds = %d, want 1", maxActive.Load())
 	}
 }

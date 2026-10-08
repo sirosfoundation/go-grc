@@ -36,6 +36,7 @@ func NewCommand() *cobra.Command {
 		webhookSecret   string
 		enableWebhook   bool
 		rebuildInterval time.Duration
+		debounce        time.Duration
 		authIssuer      string
 		authClientID    string
 		authClientSecre string
@@ -65,6 +66,7 @@ unset, auth is disabled entirely (the pre-existing behavior).`,
 				MCPAudience:  mcpAudience,
 				MCPScopes:    splitScopes(mcpScopes),
 			}
+			webhookDebounce = debounce
 			return runServe(root, profile, addr, webhookSecret, enableWebhook, rebuildInterval, authCfg)
 		},
 	}
@@ -73,6 +75,7 @@ unset, auth is disabled entirely (the pre-existing behavior).`,
 	cmd.Flags().BoolVar(&enableWebhook, "webhook", false, "Enable GitHub webhook listener at /webhook")
 	cmd.Flags().StringVar(&webhookSecret, "webhook-secret", "", "GitHub webhook secret (required if --webhook is set). Can also be set via GRC_WEBHOOK_SECRET env var.")
 	cmd.Flags().DurationVar(&rebuildInterval, "rebuild-interval", 24*time.Hour, "How often to automatically re-render and rebuild the site (0 to disable)")
+	cmd.Flags().DurationVar(&debounce, "webhook-debounce", 30*time.Second, "Quiet period after the last push before a webhook-triggered rebuild starts; pushes within it are coalesced into one rebuild (0 to rebuild immediately)")
 	cmd.Flags().StringVar(&authIssuer, "auth-issuer", "", "OIDC issuer URL for site login + MCP bearer auth (disabled if unset). Can also be set via GRC_OIDC_ISSUER env var.")
 	cmd.Flags().StringVar(&authClientID, "auth-client-id", "", "OIDC client ID for the browser login flow. Can also be set via GRC_OIDC_CLIENT_ID env var.")
 	cmd.Flags().StringVar(&authClientSecre, "auth-client-secret", "", "OIDC client secret for the browser login flow. Can also be set via GRC_OIDC_CLIENT_SECRET env var.")
@@ -173,6 +176,7 @@ type muxConfig struct {
 	mcpData                      *complianceData
 	auth                         *oidcAuth
 	serveDir                     string
+	debounce                     time.Duration
 }
 
 func buildMux(m muxConfig) *http.ServeMux {
@@ -191,11 +195,12 @@ func buildMux(m muxConfig) *http.ServeMux {
 
 	if m.enableWebhook {
 		wh := &webhookHandler{
-			root:    m.root,
-			profile: m.profile,
-			secret:  m.webhookSecret,
-			repo:    m.cfg.Project.Repo,
-			mcpData: m.mcpData,
+			root:     m.root,
+			profile:  m.profile,
+			secret:   m.webhookSecret,
+			repo:     m.cfg.Project.Repo,
+			mcpData:  m.mcpData,
+			debounce: m.debounce,
 		}
 		mux.Handle("/webhook", wh)
 		log.Printf("Webhook listener enabled for repo %s", m.cfg.Project.Repo)
@@ -365,6 +370,7 @@ func runServe(root, profile, addr, webhookSecret string, enableWebhook bool, reb
 	mux := buildMux(muxConfig{
 		root: root, profile: profile, webhookSecret: webhookSecret, enableWebhook: enableWebhook,
 		cfg: cfg, mcpData: mcpData, auth: auth, serveDir: resolveServeDir(cfg),
+		debounce: webhookDebounce,
 	})
 
 	srv := &http.Server{
@@ -380,6 +386,15 @@ func runServe(root, profile, addr, webhookSecret string, enableWebhook bool, reb
 	return serveUntilShutdown(srv, stopCh)
 }
 
+// webhookDebounce is the quiet period applied to webhook-triggered rebuilds;
+// set from --webhook-debounce.
+var webhookDebounce = 30 * time.Second
+
+// buildMu serializes renderAndBuild. Docusaurus writes into a single build
+// directory, so two overlapping builds (a burst of pushes, or a push during a
+// scheduled rebuild) delete each other's output and leave a half-built site.
+var buildMu sync.Mutex
+
 // webhookHandler handles GitHub push webhooks and triggers site re-renders.
 type webhookHandler struct {
 	root    string
@@ -388,8 +403,17 @@ type webhookHandler struct {
 	repo    string
 	mcpData *complianceData
 
-	mu         sync.Mutex
-	lastRender time.Time
+	// debounce is the quiet period after the last push before a rebuild
+	// starts. Zero rebuilds immediately.
+	debounce time.Duration
+
+	// rebuildFn overrides rebuild; set by tests.
+	rebuildFn func()
+
+	mu      sync.Mutex
+	timer   *time.Timer
+	running bool
+	dirty   bool
 }
 
 func (wh *webhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -452,25 +476,61 @@ func (wh *webhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Debounce: skip if last render was < 10 seconds ago.
-	wh.mu.Lock()
-	if time.Since(wh.lastRender) < 10*time.Second {
-		wh.mu.Unlock()
-		w.WriteHeader(http.StatusOK)
-		_, _ = fmt.Fprintf(w, `{"status":"debounced"}`)
-		return
-	}
-	wh.lastRender = time.Now()
-	wh.mu.Unlock()
-
 	// Acknowledge immediately and rebuild in the background: a full
 	// render + Docusaurus build routinely takes 30-60s, well past GitHub's
 	// webhook delivery timeout, which would otherwise report every
 	// successful delivery as a failed one.
-	go wh.rebuild()
+	wh.schedule()
 
 	w.WriteHeader(http.StatusAccepted)
 	_, _ = fmt.Fprintf(w, `{"status":"accepted"}`)
+}
+
+// schedule requests a rebuild. With a debounce period, each call restarts
+// the quiet-period timer so a burst of pushes yields one rebuild, run after
+// the last of them and therefore against the final state.
+func (wh *webhookHandler) schedule() {
+	wh.mu.Lock()
+	defer wh.mu.Unlock()
+	if wh.debounce <= 0 {
+		go wh.run()
+		return
+	}
+	if wh.timer != nil {
+		wh.timer.Stop()
+	}
+	wh.timer = time.AfterFunc(wh.debounce, wh.run)
+}
+
+// run performs rebuilds one at a time. A rebuild requested while one is in
+// flight is coalesced into a single follow-up run, so the site always ends
+// up reflecting the latest push without overlapping builds.
+func (wh *webhookHandler) run() {
+	wh.mu.Lock()
+	if wh.running {
+		wh.dirty = true
+		wh.mu.Unlock()
+		return
+	}
+	wh.running = true
+	wh.mu.Unlock()
+
+	for {
+		if wh.rebuildFn != nil {
+			wh.rebuildFn()
+		} else {
+			wh.rebuild()
+		}
+
+		wh.mu.Lock()
+		if !wh.dirty {
+			wh.running = false
+			wh.mu.Unlock()
+			return
+		}
+		wh.dirty = false
+		wh.mu.Unlock()
+	}
 }
 
 // rebuild pulls latest changes and re-renders the site. Runs in the
@@ -512,6 +572,8 @@ func verifySignature(body []byte, sig, secret string) bool {
 
 // renderAndBuild runs the full render + Docusaurus build pipeline.
 func renderAndBuild(root, profile string) error {
+	buildMu.Lock()
+	defer buildMu.Unlock()
 	if err := render.Run(root, profile); err != nil {
 		return fmt.Errorf("render: %w", err)
 	}
