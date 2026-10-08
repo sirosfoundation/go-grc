@@ -510,20 +510,25 @@ func (wh *webhookHandler) schedule() {
 // fire is the debounce timer callback. A callback whose timer has since been
 // replaced by a newer push is stale and must not start a rebuild early.
 func (wh *webhookHandler) fire(gen uint64) {
-	wh.mu.Lock()
-	stale := gen != wh.gen
-	wh.mu.Unlock()
-	if stale {
-		return
-	}
-	wh.run()
+	wh.runIf(&gen)
 }
 
 // run performs rebuilds one at a time. A rebuild requested while one is in
 // flight is coalesced into a single follow-up run, so the site always ends
 // up reflecting the latest push without overlapping builds.
 func (wh *webhookHandler) run() {
+	wh.runIf(nil)
+}
+
+// runIf is run, but when gen is non-nil it only proceeds if gen is still the
+// current debounce generation. The check and the start of the rebuild happen
+// under one lock hold, so a push cannot slip in between them.
+func (wh *webhookHandler) runIf(gen *uint64) {
 	wh.mu.Lock()
+	if gen != nil && *gen != wh.gen {
+		wh.mu.Unlock()
+		return
+	}
 	if wh.running {
 		wh.dirty = true
 		wh.mu.Unlock()
