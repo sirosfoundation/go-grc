@@ -202,6 +202,10 @@ docker run -v /path/to/compliance:/data \
   ghcr.io/sirosfoundation/go-grc \
   serve -r /data --webhook --rebuild-interval 24h
 
+# Webhook rebuilds are debounced: a burst of pushes yields one rebuild, started
+# after --webhook-debounce (default 30s) of quiet. Builds never overlap; a push
+# during a build queues exactly one follow-up. 0 rebuilds immediately.
+
 # One-shot render (markdown only, no Docusaurus build)
 docker run --rm -v /path/to/compliance:/data \
   ghcr.io/sirosfoundation/go-grc \
