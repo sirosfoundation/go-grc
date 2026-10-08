@@ -412,6 +412,7 @@ type webhookHandler struct {
 
 	mu      sync.Mutex
 	timer   *time.Timer
+	gen     uint64 // generation of the latest debounce timer
 	running bool
 	dirty   bool
 }
@@ -499,7 +500,23 @@ func (wh *webhookHandler) schedule() {
 	if wh.timer != nil {
 		wh.timer.Stop()
 	}
-	wh.timer = time.AfterFunc(wh.debounce, wh.run)
+	// Stop cannot cancel a callback that has already expired and is waiting
+	// for wh.mu, so each timer carries a generation that fire checks.
+	wh.gen++
+	gen := wh.gen
+	wh.timer = time.AfterFunc(wh.debounce, func() { wh.fire(gen) })
+}
+
+// fire is the debounce timer callback. A callback whose timer has since been
+// replaced by a newer push is stale and must not start a rebuild early.
+func (wh *webhookHandler) fire(gen uint64) {
+	wh.mu.Lock()
+	stale := gen != wh.gen
+	wh.mu.Unlock()
+	if stale {
+		return
+	}
+	wh.run()
 }
 
 // run performs rebuilds one at a time. A rebuild requested while one is in

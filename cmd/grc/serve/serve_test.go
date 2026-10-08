@@ -234,8 +234,11 @@ func TestWebhookPushDuringRebuildRunsOnceMore(t *testing.T) {
 	wh := &webhookHandler{}
 	wh.rebuildFn = func() {
 		n := active.Add(1)
-		if n > maxActive.Load() {
-			maxActive.Store(n)
+		for {
+			m := maxActive.Load()
+			if n <= m || maxActive.CompareAndSwap(m, n) {
+				break
+			}
 		}
 		if runs.Add(1) == 1 {
 			<-release
@@ -257,4 +260,32 @@ func TestWebhookPushDuringRebuildRunsOnceMore(t *testing.T) {
 	if maxActive.Load() != 1 {
 		t.Errorf("max concurrent rebuilds = %d, want 1", maxActive.Load())
 	}
+}
+
+// A timer callback that was already waiting on the lock when a newer push
+// replaced its timer must not start a rebuild.
+func TestWebhookStaleTimerCallbackIgnored(t *testing.T) {
+	var runs atomic.Int32
+	wh := &webhookHandler{debounce: time.Hour, rebuildFn: func() { runs.Add(1) }}
+	wh.schedule()
+	wh.mu.Lock()
+	stale := wh.gen
+	wh.mu.Unlock()
+	wh.schedule() // newer push replaces the first timer
+	wh.fire(stale)
+	time.Sleep(50 * time.Millisecond)
+	if n := runs.Load(); n != 0 {
+		t.Fatalf("stale callback started %d rebuild(s)", n)
+	}
+	wh.mu.Lock()
+	cur := wh.gen
+	wh.mu.Unlock()
+	wh.fire(cur)
+	time.Sleep(50 * time.Millisecond)
+	if n := runs.Load(); n != 1 {
+		t.Fatalf("current callback rebuilds = %d, want 1", n)
+	}
+	wh.mu.Lock()
+	wh.timer.Stop()
+	wh.mu.Unlock()
 }
