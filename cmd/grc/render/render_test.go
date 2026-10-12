@@ -157,12 +157,18 @@ func TestRenderCommand_RiskWithoutTreatmentAction(t *testing.T) {
 	}
 }
 
-func renderFixture(t *testing.T, profile string) string {
+func renderFixture(t *testing.T, profile, soaStatus string) string {
 	t.Helper()
 	tmpDir := t.TempDir()
 	if err := copyDir(testdataDir(), tmpDir); err != nil {
 		t.Fatal(err)
 	}
+	renderInto(t, tmpDir, profile, soaStatus)
+	return tmpDir
+}
+
+func renderInto(t *testing.T, tmpDir, profile, soaStatus string) {
+	t.Helper()
 	write := func(rel, body string) {
 		p := filepath.Join(tmpDir, rel)
 		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -178,6 +184,7 @@ func renderFixture(t *testing.T, profile string) string {
   id: SOA-TEST
   title: Test Statement of Applicability
   version: "1.0"
+`+soaStatus+`
   date: "2026-10-01"
 requirements:
 - annex_a: A.5.1
@@ -197,8 +204,9 @@ requirements:
 	if err := parent.Execute(); err != nil {
 		t.Fatalf("render --profile %s: %v", profile, err)
 	}
-	return tmpDir
 }
+
+const approved = "  status: approved\n  approved_date: \"2026-10-20\""
 
 func readAll(t *testing.T, root string) map[string]string {
 	t.Helper()
@@ -218,7 +226,7 @@ func readAll(t *testing.T, root string) map[string]string {
 }
 
 func TestRenderPublicShowsSoAButNeverAssessments(t *testing.T) {
-	root := renderFixture(t, "public")
+	root := renderFixture(t, "public", approved)
 
 	page, err := os.ReadFile(filepath.Join(root, "site", "docs", "audits", "iso-2026.md"))
 	if err != nil {
@@ -247,7 +255,7 @@ func TestRenderPublicShowsSoAButNeverAssessments(t *testing.T) {
 }
 
 func TestRenderPrivateAssessmentsStillFeedFindings(t *testing.T) {
-	root := renderFixture(t, "private")
+	root := renderFixture(t, "private", "  status: in_review")
 	page, err := os.ReadFile(filepath.Join(root, "site", "docs", "audits", "iso-2026.md"))
 	if err != nil {
 		t.Fatal(err)
@@ -264,5 +272,57 @@ func TestRenderPrivateAssessmentsStillFeedFindings(t *testing.T) {
 	}
 	if !found {
 		t.Error("private findings pages lost the internal assessment's finding")
+	}
+}
+
+func TestRenderPublicHidesUnapprovedSoA(t *testing.T) {
+	for name, status := range map[string]string{
+		"draft":     "  status: draft",
+		"in_review": "  status: in_review",
+		"absent":    "",
+		"unknown":   "  status: published",
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := renderFixture(t, "public", status)
+			if _, err := os.Stat(filepath.Join(root, "site", "docs", "audits")); err == nil {
+				t.Error("public site has an audits directory for an unapproved statement")
+			}
+			for p, content := range readAll(t, filepath.Join(root, "site")) {
+				for _, marker := range []string{"SOA-TEST", "Test Statement of Applicability", "Policies for information security", "auditsSidebar"} {
+					if strings.Contains(content, marker) {
+						t.Errorf("public output %s contains %q", p, marker)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestRenderPrivateShowsDraftSoAWithBanner(t *testing.T) {
+	root := renderFixture(t, "private", "  status: draft")
+	page, err := os.ReadFile(filepath.Join(root, "site", "docs", "audits", "iso-2026.md"))
+	if err != nil {
+		t.Fatalf("private site lost the draft SoA: %v", err)
+	}
+	for _, want := range []string{":::caution Draft", "| **Status** | Draft |"} {
+		if !strings.Contains(string(page), want) {
+			t.Errorf("draft SoA page missing %q:\n%s", want, page)
+		}
+	}
+}
+
+// A statement that goes back to draft must not stay online from an earlier
+// public render.
+func TestRenderPublicRemovesSoAWhenNoLongerApproved(t *testing.T) {
+	root := renderFixture(t, "public", approved)
+	if _, err := os.Stat(filepath.Join(root, "site", "docs", "audits", "iso-2026.md")); err != nil {
+		t.Fatalf("approved SoA not published: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "audits", "iso-2026", "soa.yaml"), []byte("soa:\n  id: SOA-TEST\n  status: draft\nrequirements: []\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	renderInto(t, root, "public", "  status: draft") // rewrites the fixture as a draft
+	if _, err := os.Stat(filepath.Join(root, "site", "docs", "audits")); err == nil {
+		t.Error("stale published SoA pages survived the SoA going back to draft")
 	}
 }

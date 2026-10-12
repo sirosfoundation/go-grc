@@ -128,8 +128,14 @@ Findings come in two kinds, kept in separate directories:
 A Statement of Applicability (`soa:` header plus `requirements:` rows of
 `annex_a`, `title`, `applicable` (`true`/`false`/`partial`), `status`
 (`implemented`/`partial`/`gap`), `justification`, `evidence`) is rendered as a
-table under `/audits/<cycle>` on both profiles. The evidence column, which
-points into the repository, is shown on the private profile only.
+table under `/audits/<cycle>`. A statement has a review state in
+`soa.status`: `draft`, `in_review` or `approved` (with `approved_date`).
+**Only an approved statement is published**; every other state, including a
+missing or unrecognized one, is internal. The private site shows all
+statements, marking unapproved ones with a banner; the public site shows only
+approved ones, drops the Audits navbar entry when there are none, and removes
+pages published by an earlier render when a statement goes back to draft. The
+evidence column, which points into the repository, is private only.
 `grc validate` checks every statement.
 
 ### Status derivation

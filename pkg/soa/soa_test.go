@@ -86,3 +86,37 @@ func TestValidateProblems(t *testing.T) {
 		}
 	}
 }
+
+func TestPublishedOnlyWhenApproved(t *testing.T) {
+	for status, want := range map[string]bool{"": false, "draft": false, "in_review": false, "approved": true, "Approved": false, "published": false} {
+		s := soa.SoA{Header: soa.Header{Status: status}}
+		if got := s.Published(); got != want {
+			t.Errorf("Published(%q) = %v, want %v", status, got, want)
+		}
+	}
+	if (&soa.SoA{}).State() != soa.StatusDraft {
+		t.Error("missing status must read as draft")
+	}
+}
+
+func TestValidateStatus(t *testing.T) {
+	ok := soa.Requirement{AnnexA: "A.1", Applicable: soa.Applicable, Status: "gap", Justification: "j"}
+	cases := map[string]string{
+		"approved without a date": "approved_date is empty",
+		"bogus":                   `soa.status is "bogus"`,
+	}
+	for status, want := range cases {
+		st := status
+		if st == "approved without a date" {
+			st = "approved"
+		}
+		s := soa.SoA{Header: soa.Header{ID: "S", Status: st}, Requirements: []soa.Requirement{ok}}
+		if joined := strings.Join(s.Validate(), "\n"); !strings.Contains(joined, want) {
+			t.Errorf("status %q: want %q in %q", status, want, joined)
+		}
+	}
+	s := soa.SoA{Header: soa.Header{ID: "S", Status: "approved", ApprovedDate: "2026-10-20"}, Requirements: []soa.Requirement{ok}}
+	if p := s.Validate(); len(p) != 0 {
+		t.Errorf("approved with date reported %v", p)
+	}
+}

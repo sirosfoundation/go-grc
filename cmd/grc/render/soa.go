@@ -32,10 +32,10 @@ func generateSoAs(cfg *config.Config, soas []*soa.Loaded, isPublic bool) error {
 func renderSoAIndex(soas []*soa.Loaded) string {
 	var b strings.Builder
 	b.WriteString("---\ntitle: \"Audits\"\nsidebar_label: \"Overview\"\nsidebar_position: 0\n---\n\n# Audits\n\n")
-	b.WriteString("Statements of Applicability for audit cycles.\n\n| Statement | Version | Date |\n|---|---|---|\n")
+	b.WriteString("Statements of Applicability for audit cycles.\n\n| Statement | Status | Version | Date |\n|---|---|---|---|\n")
 	for _, s := range soas {
 		h := s.SoA.Header
-		fmt.Fprintf(&b, "| [%s](/audits/%s) | %s | %s |\n", cell(h.Title), cycleSlug(s.Cycle), cell(h.Version), cell(h.Date))
+		fmt.Fprintf(&b, "| [%s](/audits/%s) | %s | %s | %s |\n", cell(h.Title), cycleSlug(s.Cycle), stateLabel(s.SoA.State()), cell(h.Version), cell(h.Date))
 	}
 	return b.String()
 }
@@ -49,7 +49,14 @@ func renderSoAPage(s *soa.Loaded, isPublic bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "---\ntitle: %q\nsidebar_label: %q\n---\n\n# %s\n\n", title, h.ID, title)
 
+	if !s.SoA.Published() {
+		fmt.Fprintf(&b, ":::caution %s\nThis statement has not been through its review and is internal. It is not published on the public site.\n:::\n\n", stateLabel(s.SoA.State()))
+	}
 	b.WriteString("| | |\n|---|---|\n")
+	fmt.Fprintf(&b, "| **Status** | %s |\n", stateLabel(s.SoA.State()))
+	if h.ApprovedDate != "" {
+		fmt.Fprintf(&b, "| **Approved** | %s |\n", cell(h.ApprovedDate))
+	}
 	if h.Version != "" {
 		fmt.Fprintf(&b, "| **Version** | %s |\n", cell(h.Version))
 	}
@@ -99,6 +106,32 @@ func renderSoAPage(s *soa.Loaded, isPublic bool) string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+func stateLabel(state string) string {
+	switch state {
+	case soa.StatusApproved:
+		return "Approved"
+	case soa.StatusInReview:
+		return "In review"
+	default:
+		return "Draft"
+	}
+}
+
+// publishable returns the statements that may appear on the given profile:
+// every statement on the private site, only approved ones on the public site.
+func publishable(soas []*soa.Loaded, isPublic bool) []*soa.Loaded {
+	if !isPublic {
+		return soas
+	}
+	var out []*soa.Loaded
+	for _, s := range soas {
+		if s.SoA.Published() {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // cell makes s safe inside a Markdown (MDX) table cell.

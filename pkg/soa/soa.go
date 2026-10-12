@@ -32,8 +32,22 @@ func (a *Applicability) UnmarshalYAML(n *yaml.Node) error {
 	return nil
 }
 
+// Lifecycle states of a statement. Only an approved statement is published;
+// every other state, including a missing or unknown one, is internal.
+const (
+	StatusDraft    = "draft"
+	StatusInReview = "in_review"
+	StatusApproved = "approved"
+)
+
 // Header identifies the statement.
 type Header struct {
+	// Status is the review state: draft, in_review or approved. Absent means
+	// draft, so a statement is never published by omission.
+	Status string `yaml:"status"`
+	// ApprovedDate is when the review finished; required once approved.
+	ApprovedDate string `yaml:"approved_date,omitempty"`
+
 	ID        string `yaml:"id"`
 	Title     string `yaml:"title"`
 	ScopeRef  string `yaml:"scope_ref"`
@@ -56,6 +70,19 @@ type Requirement struct {
 type SoA struct {
 	Header       Header        `yaml:"soa"`
 	Requirements []Requirement `yaml:"requirements"`
+}
+
+// Published reports whether the statement may be shown publicly: only once
+// its review is finished. Anything else, including an unrecognized status,
+// is internal.
+func (s *SoA) Published() bool { return s.Header.Status == StatusApproved }
+
+// State returns the lifecycle status, defaulting to draft.
+func (s *SoA) State() string {
+	if s.Header.Status == "" {
+		return StatusDraft
+	}
+	return s.Header.Status
 }
 
 // Loaded is a statement together with where it came from.
@@ -106,6 +133,15 @@ func (s *SoA) Validate() []string {
 	var problems []string
 	if s.Header.ID == "" {
 		problems = append(problems, "soa.id is empty")
+	}
+	switch s.Header.Status {
+	case "", StatusDraft, StatusInReview:
+	case StatusApproved:
+		if s.Header.ApprovedDate == "" {
+			problems = append(problems, "status is approved but approved_date is empty")
+		}
+	default:
+		problems = append(problems, fmt.Sprintf("soa.status is %q, want draft, in_review or approved", s.Header.Status))
 	}
 	if len(s.Requirements) == 0 {
 		problems = append(problems, "no requirements")

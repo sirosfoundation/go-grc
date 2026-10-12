@@ -69,7 +69,7 @@ func Run(root, profile string) error {
 	if err != nil {
 		return fmt.Errorf("loading audits: %w", err)
 	}
-	soas, err := soa.Load(cfg.AuditsDir)
+	allSoAs, err := soa.Load(cfg.AuditsDir)
 	if err != nil {
 		return fmt.Errorf("loading statements of applicability: %w", err)
 	}
@@ -79,6 +79,9 @@ func Run(root, profile string) error {
 	}
 
 	isPublic := profile != "private"
+
+	// Statements are public only once approved; in-progress ones stay internal.
+	soas := publishable(allSoAs, isPublic)
 
 	// Internal assessments are never public: drop them before anything that
 	// renders can see them.
@@ -232,6 +235,10 @@ func Run(root, profile string) error {
 	}
 	if len(soas) > 0 {
 		subdirs = append(subdirs, "audits")
+	} else {
+		// Nothing to show on this profile, e.g. a statement went back to
+		// draft: drop pages published by an earlier render.
+		_ = os.RemoveAll(filepath.Join(cfg.SiteDir, "audits"))
 	}
 	if cfg.YearCycle.Source != "" && (!isPublic || cfg.YearCycle.Public) {
 		subdirs = append(subdirs, "year-cycle")
