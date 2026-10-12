@@ -70,8 +70,20 @@ type AuditSet struct {
 	FindingsByControl map[string][]*FindingRef
 }
 
+// Kind says whether a findings file records a real audit or an internal
+// self-assessment. Only the former may ever be shown publicly.
+type Kind string
+
+const (
+	// KindAudit is a real audit cycle (certification or surveillance audit).
+	KindAudit Kind = "audit"
+	// KindAssessment is an internal self-assessment, never public.
+	KindAssessment Kind = "assessment"
+)
+
 type LoadedFile struct {
 	Path string
+	Kind Kind
 	Data AuditFile
 }
 
@@ -81,53 +93,120 @@ type FindingRef struct {
 	Finding *Finding
 }
 
+// Load reads real audits from auditsDir.
 func Load(auditsDir string) (*AuditSet, error) {
+	return LoadDirs(auditsDir, "")
+}
+
+// LoadDirs reads real audits from auditsDir and internal self-assessments
+// from assessmentsDir (skipped when empty or absent), tagging each file with
+// its Kind. Finding IDs must be unique across both.
+//
+// In either directory a findings file is a "*.yaml" directly in the
+// directory, or the "audit.yaml" of a per-cycle subdirectory
+// ("<dir>/<cycle>/audit.yaml"). Other files in a cycle directory, such as
+// "soa.yaml" and "references/", are not findings files and are ignored here.
+func LoadDirs(auditsDir, assessmentsDir string) (*AuditSet, error) {
 	set := &AuditSet{
 		FindingsByID:      make(map[string]*FindingRef),
 		FindingsByControl: make(map[string][]*FindingRef),
 	}
+	if err := set.loadDir(auditsDir, KindAudit, true); err != nil {
+		return nil, err
+	}
+	if assessmentsDir != "" {
+		if err := set.loadDir(assessmentsDir, KindAssessment, false); err != nil {
+			return nil, err
+		}
+	}
+	return set, nil
+}
 
-	entries, err := os.ReadDir(auditsDir)
+func (set *AuditSet) loadDir(dir string, kind Kind, required bool) error {
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return nil, fmt.Errorf("reading audits dir: %w", err)
+		if !required && os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("reading %s dir: %w", kind, err)
 	}
 
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".yaml" {
+		var path string
+		switch {
+		case entry.IsDir():
+			path = filepath.Join(dir, entry.Name(), "audit.yaml")
+			if _, err := os.Stat(path); err != nil {
+				continue
+			}
+		case filepath.Ext(entry.Name()) == ".yaml":
+			path = filepath.Join(dir, entry.Name())
+		default:
 			continue
 		}
-
-		path := filepath.Join(auditsDir, entry.Name())
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("reading %s: %w", entry.Name(), err)
+		if err := set.loadFile(path, kind); err != nil {
+			return err
 		}
+	}
+	return nil
+}
 
-		var af AuditFile
-		if err := yaml.Unmarshal(data, &af); err != nil {
-			return nil, fmt.Errorf("parsing %s: %w", entry.Name(), err)
+func (set *AuditSet) loadFile(path string, kind Kind) error {
+	name, _ := filepath.Rel(filepath.Dir(filepath.Dir(path)), path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", name, err)
+	}
+
+	var af AuditFile
+	if err := yaml.Unmarshal(data, &af); err != nil {
+		return fmt.Errorf("parsing %s: %w", name, err)
+	}
+
+	set.Files = append(set.Files, LoadedFile{Path: path, Kind: kind, Data: af})
+	file := &set.Files[len(set.Files)-1]
+	for i := range file.Data.Findings {
+		f := &file.Data.Findings[i]
+		ref := &FindingRef{File: file, Index: i, Finding: f}
+
+		if _, dup := set.FindingsByID[f.ID]; dup {
+			return fmt.Errorf("duplicate finding ID: %s in %s", f.ID, name)
 		}
+		set.FindingsByID[f.ID] = ref
 
-		lf := LoadedFile{Path: path, Data: af}
-		set.Files = append(set.Files, lf)
+		for _, ctrlID := range f.Controls {
+			set.FindingsByControl[ctrlID] = append(set.FindingsByControl[ctrlID], ref)
+		}
+	}
+	return nil
+}
 
-		file := &set.Files[len(set.Files)-1]
-		for i := range file.Data.Findings {
-			f := &file.Data.Findings[i]
-			ref := &FindingRef{File: file, Index: i, Finding: f}
-
-			if _, dup := set.FindingsByID[f.ID]; dup {
-				return nil, fmt.Errorf("duplicate finding ID: %s in %s", f.ID, entry.Name())
-			}
-			set.FindingsByID[f.ID] = ref
-
-			for _, ctrlID := range f.Controls {
-				set.FindingsByControl[ctrlID] = append(set.FindingsByControl[ctrlID], ref)
+// AuditsOnly returns a view of the set restricted to real audits, with every
+// internal assessment removed. Anything that renders for a public audience
+// must go through it, so assessments cannot leak by omission.
+func (set *AuditSet) AuditsOnly() *AuditSet {
+	out := &AuditSet{
+		FindingsByID:      make(map[string]*FindingRef),
+		FindingsByControl: make(map[string][]*FindingRef),
+	}
+	for i := range set.Files {
+		if set.Files[i].Kind == KindAudit {
+			out.Files = append(out.Files, set.Files[i])
+		}
+	}
+	for id, ref := range set.FindingsByID {
+		if ref.File.Kind == KindAudit {
+			out.FindingsByID[id] = ref
+		}
+	}
+	for ctrl, refs := range set.FindingsByControl {
+		for _, ref := range refs {
+			if ref.File.Kind == KindAudit {
+				out.FindingsByControl[ctrl] = append(out.FindingsByControl[ctrl], ref)
 			}
 		}
 	}
-
-	return set, nil
+	return out
 }
 
 func (lf *LoadedFile) Save() error {

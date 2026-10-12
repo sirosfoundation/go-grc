@@ -36,3 +36,20 @@ func TestPatchNavbar(t *testing.T) {
 		t.Error("expected an error when no navbar anchor exists")
 	}
 }
+
+func TestPatchAuditsNavItem(t *testing.T) {
+	base := "navbar: [\n" + navbarAnchors[0] + "\n"
+	added := patchAuditsNavItem(base, true)
+	if !strings.Contains(added, "auditsSidebar") || strings.Index(added, "auditsSidebar") > strings.Index(added, "https://github.com/sirosfoundation") {
+		t.Errorf("Audits item not inserted before the anchor:\n%s", added)
+	}
+	if again := patchAuditsNavItem(added, true); again != added {
+		t.Error("patching twice is not idempotent")
+	}
+	if removed := patchAuditsNavItem(added, false); removed != base {
+		t.Errorf("disabling did not restore the original:\n%s", removed)
+	}
+	if noAnchor := patchAuditsNavItem("navbar: []\n", true); noAnchor != "navbar: []\n" {
+		t.Error("config without an anchor must be left unchanged")
+	}
+}

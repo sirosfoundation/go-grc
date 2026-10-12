@@ -77,7 +77,7 @@ func run(root, repo string, dryRun bool) error {
 
 	client := ghpkg.NewWithToken(ctx, token)
 
-	audits, err := audit.Load(cfg.AuditsDir)
+	audits, err := audit.LoadDirs(cfg.AuditsDir, cfg.AssessmentsDir)
 	if err != nil {
 		return fmt.Errorf("loading audits: %w", err)
 	}
@@ -381,7 +381,7 @@ func runLink(root, findingID, ref string, isPR bool) error {
 	if err != nil {
 		return fmt.Errorf("loading config: %w", err)
 	}
-	audits, err := audit.Load(cfg.AuditsDir)
+	audits, err := audit.LoadDirs(cfg.AuditsDir, cfg.AssessmentsDir)
 	if err != nil {
 		return fmt.Errorf("loading audits: %w", err)
 	}

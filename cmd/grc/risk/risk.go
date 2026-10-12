@@ -171,7 +171,7 @@ func runValidate(root string) error {
 		return fmt.Errorf("loading risk register: %w", err)
 	}
 
-	audits, err := audit.Load(cfg.AuditsDir)
+	audits, err := audit.LoadDirs(cfg.AuditsDir, cfg.AssessmentsDir)
 	if err != nil {
 		return fmt.Errorf("loading audits: %w", err)
 	}

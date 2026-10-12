@@ -85,7 +85,7 @@ func run(root, format, profile string) error {
 		return fmt.Errorf("loading catalog: %w", err)
 	}
 
-	audits, err := audit.Load(cfg.AuditsDir)
+	audits, err := audit.LoadDirs(cfg.AuditsDir, cfg.AssessmentsDir)
 	if err != nil {
 		return fmt.Errorf("loading audits: %w", err)
 	}

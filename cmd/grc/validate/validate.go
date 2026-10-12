@@ -13,6 +13,7 @@ import (
 	"github.com/sirosfoundation/go-grc/pkg/config"
 	"github.com/sirosfoundation/go-grc/pkg/mapping"
 	"github.com/sirosfoundation/go-grc/pkg/risk"
+	"github.com/sirosfoundation/go-grc/pkg/soa"
 )
 
 func NewCommand() *cobra.Command {
@@ -117,8 +118,19 @@ func run(root string) error {
 		}
 	}
 
+	// Validate statements of applicability
+	soas, err := soa.Load(cfg.AuditsDir)
+	if err != nil {
+		return fmt.Errorf("loading statements of applicability: %w", err)
+	}
+	for _, s := range soas {
+		for _, p := range s.SoA.Validate() {
+			add(fmt.Sprintf("soa %s: %s", s.Cycle, p))
+		}
+	}
+
 	// Validate audits
-	audits, err := audit.Load(cfg.AuditsDir)
+	audits, err := audit.LoadDirs(cfg.AuditsDir, cfg.AssessmentsDir)
 	if err != nil {
 		return fmt.Errorf("loading audits: %w", err)
 	}
