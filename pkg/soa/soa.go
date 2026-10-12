@@ -126,7 +126,7 @@ func Load(auditsDir string) ([]*Loaded, error) {
 	return out, nil
 }
 
-var validStatus = map[string]bool{"implemented": true, "partial": true, "gap": true}
+var validStatus = map[string]bool{"implemented": true, "partial": true, "gap": true, "not_applicable": true}
 
 // Validate returns a description of every problem in the statement.
 func (s *SoA) Validate() []string {
@@ -162,7 +162,7 @@ func (s *SoA) Validate() []string {
 			problems = append(problems, fmt.Sprintf("%s: applicable is %q, want true, false or partial", r.AnnexA, r.Applicable))
 		}
 		if !validStatus[r.Status] {
-			problems = append(problems, fmt.Sprintf("%s: status is %q, want implemented, partial or gap", r.AnnexA, r.Status))
+			problems = append(problems, fmt.Sprintf("%s: status is %q, want implemented, partial, gap or not_applicable", r.AnnexA, r.Status))
 		}
 		if r.Justification == "" {
 			problems = append(problems, fmt.Sprintf("%s: no justification", r.AnnexA))
