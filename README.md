@@ -111,6 +111,27 @@ Controls can reference calendar activities by a stable lookup key derived
 from the event title (e.g. `DPIA Review` → `dpia-review`) rather than
 calendar UIDs that may change over time.
 
+### Audits and internal assessments
+
+Findings come in two kinds, kept in separate directories:
+
+- **Real audits** (`audits.dir`, default `audits/`): certification and
+  surveillance audit cycles. One directory per cycle, e.g.
+  `audits/iso27001-2026-07/`, holding `audit.yaml` (findings),
+  `soa.yaml` (Statement of Applicability) and `references/` (supporting
+  material, never rendered). Flat `audits/*.yaml` findings files are still
+  read and count as real audits.
+- **Internal assessments** (`assessments.dir`, default `assessments/`):
+  self-assessments. They feed derivation, sync and the private site like any
+  other findings, but are **never rendered on the public profile**.
+
+A Statement of Applicability (`soa:` header plus `requirements:` rows of
+`annex_a`, `title`, `applicable` (`true`/`false`/`partial`), `status`
+(`implemented`/`partial`/`gap`), `justification`, `evidence`) is rendered as a
+table under `/audits/<cycle>` on both profiles. The evidence column, which
+points into the repository, is shown on the private profile only.
+`grc validate` checks every statement.
+
 ### Status derivation
 
 The `derive` command computes statuses bottom-up:
@@ -296,7 +317,9 @@ mappings:
   dir: mappings
 
 audits:
-  dir: audits
+  dir: audits            # real audit cycles: <cycle>/{audit,soa}.yaml
+assessments:
+  dir: assessments       # internal self-assessments, never public
 
 site:
   dir: site/docs

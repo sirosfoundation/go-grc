@@ -126,6 +126,7 @@ type GRCFile struct {
 	Catalog      CatalogConfig      `yaml:"catalog"`
 	Mappings     DirConfig          `yaml:"mappings"`
 	Audits       DirConfig          `yaml:"audits"`
+	Assessments  DirConfig          `yaml:"assessments"`
 	Site         DirConfig          `yaml:"site"`
 	OSCAL        DirConfig          `yaml:"oscal"`
 	Frameworks   []FrameworkConfig  `yaml:"frameworks"`
@@ -141,9 +142,13 @@ type Config struct {
 	CatalogDir  string
 	MappingsDir string
 	AuditsDir   string
-	SiteDir     string
-	OSCALDir    string
-	RiskDir     string
+	// AssessmentsDir holds internal self-assessments. Unlike AuditsDir
+	// (real, external audit cycles) its contents are never rendered into
+	// the public site. A missing directory is not an error.
+	AssessmentsDir string
+	SiteDir        string
+	OSCALDir       string
+	RiskDir        string
 	// RiskMethodologyPath is the resolved path of the risk methodology
 	// document, or "" when none is configured.
 	RiskMethodologyPath string
@@ -162,12 +167,13 @@ type Config struct {
 // Returns an error if .grc.yaml exists but is malformed.
 func New(root string) (*Config, error) {
 	cfg := &Config{
-		Root:        root,
-		CatalogDir:  filepath.Join(root, "catalog"),
-		MappingsDir: filepath.Join(root, "mappings"),
-		AuditsDir:   filepath.Join(root, "audits"),
-		SiteDir:     filepath.Join(root, "site", "docs"),
-		OSCALDir:    filepath.Join(root, "oscal"),
+		Root:           root,
+		CatalogDir:     filepath.Join(root, "catalog"),
+		MappingsDir:    filepath.Join(root, "mappings"),
+		AuditsDir:      filepath.Join(root, "audits"),
+		AssessmentsDir: filepath.Join(root, "assessments"),
+		SiteDir:        filepath.Join(root, "site", "docs"),
+		OSCALDir:       filepath.Join(root, "oscal"),
 		Project: ProjectConfig{
 			Name: DefaultName,
 			Repo: DefaultRepo,
@@ -219,6 +225,9 @@ func New(root string) (*Config, error) {
 	}
 	if grc.Audits.Dir != "" {
 		cfg.AuditsDir = filepath.Join(root, grc.Audits.Dir)
+	}
+	if grc.Assessments.Dir != "" {
+		cfg.AssessmentsDir = filepath.Join(root, grc.Assessments.Dir)
 	}
 	if grc.Site.Dir != "" {
 		cfg.SiteDir = filepath.Join(root, grc.Site.Dir)

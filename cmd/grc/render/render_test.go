@@ -156,3 +156,113 @@ func TestRenderCommand_RiskWithoutTreatmentAction(t *testing.T) {
 		t.Errorf("risk index does not show treatment none:\n%s", index)
 	}
 }
+
+func renderFixture(t *testing.T, profile string) string {
+	t.Helper()
+	tmpDir := t.TempDir()
+	if err := copyDir(testdataDir(), tmpDir); err != nil {
+		t.Fatal(err)
+	}
+	write := func(rel, body string) {
+		p := filepath.Join(tmpDir, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("site/docs/.keep", "")
+	write("audits/iso-2026/audit.yaml", "audit:\n  id: REAL\nfindings:\n  - id: AUD-REAL-1\n    title: Real audit finding\n    severity: low\n    status: open\n    owner: o\n    controls: []\n")
+	write("audits/iso-2026/soa.yaml", `soa:
+  id: SOA-TEST
+  title: Test Statement of Applicability
+  version: "1.0"
+  date: "2026-10-01"
+requirements:
+- annex_a: A.5.1
+  title: Policies for information security
+  applicable: true
+  status: implemented
+  justification: Policy approved | by the Board
+  evidence: [policies/secret-internal-evidence.md]
+`)
+	write("assessments/self.yaml", "audit:\n  id: SELF\n  title: SECRET-ASSESSMENT-TITLE\nfindings:\n  - id: ASM-SECRET-1\n    title: SECRET-ASSESSMENT-FINDING\n    severity: high\n    status: open\n    owner: o\n    controls: []\n    description: SECRET-ASSESSMENT-BODY\n    tracking_issue: {repo: org/repo, number: 1}\n")
+
+	cmd := render.NewCommand()
+	parent := &cobra.Command{Use: "grc"}
+	parent.PersistentFlags().String("root", tmpDir, "root")
+	parent.AddCommand(cmd)
+	parent.SetArgs([]string{"render", "--profile", profile})
+	if err := parent.Execute(); err != nil {
+		t.Fatalf("render --profile %s: %v", profile, err)
+	}
+	return tmpDir
+}
+
+func readAll(t *testing.T, root string) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	err := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+		b, err := os.ReadFile(p)
+		files[p] = string(b)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return files
+}
+
+func TestRenderPublicShowsSoAButNeverAssessments(t *testing.T) {
+	root := renderFixture(t, "public")
+
+	page, err := os.ReadFile(filepath.Join(root, "site", "docs", "audits", "iso-2026.md"))
+	if err != nil {
+		t.Fatalf("public site has no SoA page: %v", err)
+	}
+	for _, want := range []string{"| A.5.1 |", "Policies for information security", "Policy approved \\| by the Board", "| Justification |"} {
+		if !strings.Contains(string(page), want) {
+			t.Errorf("SoA page missing %q:\n%s", want, page)
+		}
+	}
+	if strings.Contains(string(page), "Evidence") || strings.Contains(string(page), "secret-internal-evidence") {
+		t.Errorf("public SoA page exposes the evidence column:\n%s", page)
+	}
+
+	for p, content := range readAll(t, filepath.Join(root, "site")) {
+		for _, marker := range []string{"SECRET-ASSESSMENT", "ASM-SECRET-1", "AUD-REAL-1"} {
+			if strings.Contains(content, marker) {
+				t.Errorf("public output %s contains %q", p, marker)
+			}
+		}
+	}
+	sidebars, _ := os.ReadFile(filepath.Join(root, "site", "sidebars.ts"))
+	if !strings.Contains(string(sidebars), "auditsSidebar") {
+		t.Error("public sidebars.ts has no auditsSidebar")
+	}
+}
+
+func TestRenderPrivateAssessmentsStillFeedFindings(t *testing.T) {
+	root := renderFixture(t, "private")
+	page, err := os.ReadFile(filepath.Join(root, "site", "docs", "audits", "iso-2026.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(page), "| Evidence |") || !strings.Contains(string(page), "secret-internal-evidence") {
+		t.Errorf("private SoA page lacks the evidence column:\n%s", page)
+	}
+	found := false
+	for p, content := range readAll(t, filepath.Join(root, "site", "docs", "findings")) {
+		if strings.Contains(content, "ASM-SECRET-1") {
+			found = true
+			_ = p
+		}
+	}
+	if !found {
+		t.Error("private findings pages lost the internal assessment's finding")
+	}
+}
