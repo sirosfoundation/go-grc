@@ -444,8 +444,9 @@ export default sidebars;
 	}
 
 	if isPublic {
-		findingsDir := filepath.Join(cfg.SiteDir, "docs", "findings")
-		_ = os.RemoveAll(findingsDir)
+		// SiteDir is already the docs directory; also drop the legacy path.
+		_ = os.RemoveAll(filepath.Join(cfg.SiteDir, "findings"))
+		_ = os.RemoveAll(filepath.Join(cfg.SiteDir, "docs", "findings"))
 	}
 
 	return nil

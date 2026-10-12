@@ -326,3 +326,44 @@ func TestRenderPublicRemovesSoAWhenNoLongerApproved(t *testing.T) {
 		t.Error("stale published SoA pages survived the SoA going back to draft")
 	}
 }
+
+func TestRenderPublicAfterPrivateDropsFindingsAndEvidence(t *testing.T) {
+	root := renderFixture(t, "private", approved)
+	if _, err := os.Stat(filepath.Join(root, "site", "docs", "findings")); err != nil {
+		t.Fatalf("private render produced no findings: %v", err)
+	}
+	renderInto(t, root, "public", approved)
+	if _, err := os.Stat(filepath.Join(root, "site", "docs", "findings")); err == nil {
+		t.Error("findings from the private render survived a public render")
+	}
+	for p, body := range readAll(t, filepath.Join(root, "site", "docs")) {
+		if strings.Contains(body, "secret-internal-evidence") || strings.Contains(body, "ASM-SECRET-1") {
+			t.Errorf("private content leaked into public site: %s", p)
+		}
+	}
+}
+
+func TestRenderRejectsCollidingCycleSlugs(t *testing.T) {
+	root := t.TempDir()
+	if err := copyDir(testdataDir(), root); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []string{"iso_2026", "iso-2026"} {
+		p := filepath.Join(root, "audits", c)
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(p, "soa.yaml"), []byte("soa:\n  id: S\n  status: approved\n  approved_date: \"2026-10-20\"\nrequirements: []\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = os.MkdirAll(filepath.Join(root, "site", "docs"), 0o755)
+	cmd := render.NewCommand()
+	parent := &cobra.Command{Use: "grc"}
+	parent.PersistentFlags().String("root", root, "root")
+	parent.AddCommand(cmd)
+	parent.SetArgs([]string{"render", "--profile", "public"})
+	if err := parent.Execute(); err == nil {
+		t.Error("colliding cycle slugs were accepted")
+	}
+}

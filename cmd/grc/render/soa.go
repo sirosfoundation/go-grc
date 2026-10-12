@@ -14,6 +14,17 @@ import (
 // the evidence column points into the (possibly private) repository, so it
 // is shown on the private profile only.
 func generateSoAs(cfg *config.Config, soas []*soa.Loaded, isPublic bool) error {
+	seen := map[string]string{}
+	for _, s := range soas {
+		slug := cycleSlug(s.Cycle)
+		if slug == "" || slug == "index" {
+			return fmt.Errorf("audit cycle %q has no usable page name", s.Cycle)
+		}
+		if other, ok := seen[slug]; ok {
+			return fmt.Errorf("audit cycles %q and %q map to the same page %q", other, s.Cycle, slug)
+		}
+		seen[slug] = s.Cycle
+	}
 	dir := filepath.Join(cfg.SiteDir, "audits")
 	if err := writePage(filepath.Join(dir, "_category_.json"), categoryJSON("Audits", 4)); err != nil {
 		return err
@@ -35,7 +46,11 @@ func renderSoAIndex(soas []*soa.Loaded) string {
 	b.WriteString("Statements of Applicability for audit cycles.\n\n| Statement | Status | Version | Date |\n|---|---|---|---|\n")
 	for _, s := range soas {
 		h := s.SoA.Header
-		fmt.Fprintf(&b, "| [%s](/audits/%s) | %s | %s | %s |\n", cell(h.Title), cycleSlug(s.Cycle), stateLabel(s.SoA.State()), cell(h.Version), cell(h.Date))
+		title := h.Title
+		if title == "" {
+			title = h.ID
+		}
+		fmt.Fprintf(&b, "| [%s](/audits/%s) | %s | %s | %s |\n", cell(title), cycleSlug(s.Cycle), stateLabel(s.SoA.State()), cell(h.Version), cell(h.Date))
 	}
 	return b.String()
 }
