@@ -120,3 +120,12 @@ func TestValidateStatus(t *testing.T) {
 		t.Errorf("approved with date reported %v", p)
 	}
 }
+
+func TestValidateAcceptsNotApplicableStatus(t *testing.T) {
+	s := soa.SoA{Header: soa.Header{ID: "S"}, Requirements: []soa.Requirement{
+		{AnnexA: "A.1", Applicable: soa.NotApplicable, Status: "not_applicable", Justification: "j"},
+	}}
+	if p := s.Validate(); len(p) != 0 {
+		t.Errorf("not_applicable status rejected: %v", p)
+	}
+}
