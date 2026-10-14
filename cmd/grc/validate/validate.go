@@ -12,6 +12,7 @@ import (
 	"github.com/sirosfoundation/go-grc/pkg/catalog"
 	"github.com/sirosfoundation/go-grc/pkg/config"
 	"github.com/sirosfoundation/go-grc/pkg/mapping"
+	"github.com/sirosfoundation/go-grc/pkg/result"
 	"github.com/sirosfoundation/go-grc/pkg/risk"
 	"github.com/sirosfoundation/go-grc/pkg/soa"
 )
@@ -119,13 +120,24 @@ func run(root string) error {
 	}
 
 	// Validate statements of applicability
-	soas, err := soa.Load(cfg.AuditsDir)
+	soas, err := soa.LoadAll(cfg.AuditsDir, cfg.AssessmentsDir)
 	if err != nil {
 		return fmt.Errorf("loading statements of applicability: %w", err)
 	}
 	for _, s := range soas {
 		for _, p := range s.SoA.Validate() {
-			add(fmt.Sprintf("soa %s: %s", s.Cycle, p))
+			add(fmt.Sprintf("soa %s %s: %s", s.Kind, s.Cycle, p))
+		}
+	}
+
+	// Validate audit results (certificates)
+	results, err := result.Load(cfg.AuditsDir)
+	if err != nil {
+		return fmt.Errorf("loading audit results: %w", err)
+	}
+	for _, r := range results {
+		for _, p := range r.Validate() {
+			add(fmt.Sprintf("result %s: %s", r.Cycle, p))
 		}
 	}
 
@@ -134,7 +146,31 @@ func run(root string) error {
 	if err != nil {
 		return fmt.Errorf("loading audits: %w", err)
 	}
+	assessmentNames := map[string]bool{}
+	frameworkIDs := map[string]bool{}
+	for _, fw := range cfg.Frameworks {
+		frameworkIDs[fw.ID] = true
+	}
 	for _, file := range audits.Files {
+		if file.Kind == audit.KindAssessment {
+			assessmentNames[file.Name] = true
+		}
+	}
+	for _, file := range audits.Files {
+		m := file.Data.Meta()
+		if m.PreAudit != "" {
+			switch {
+			case file.Kind != audit.KindAudit:
+				add(fmt.Sprintf("assessment %s: pre_audit only applies to audits", file.Name))
+			case !assessmentNames[m.PreAudit]:
+				add(fmt.Sprintf("audit %s: pre_audit %q is not an assessment", file.Name, m.PreAudit))
+			}
+		}
+		for _, c := range m.Catalogs {
+			if !frameworkIDs[c] {
+				add(fmt.Sprintf("%s %s: unknown catalog %q", file.Kind, file.Name, c))
+			}
+		}
 		for _, f := range file.Data.Findings {
 			if !validFindingStatuses[f.Status] {
 				add(fmt.Sprintf("finding %s: invalid status %q", f.ID, f.Status))

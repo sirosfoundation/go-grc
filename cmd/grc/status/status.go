@@ -145,7 +145,7 @@ func collect(cat *catalog.Catalog, audits *audit.AuditSet, risks *risk.RiskSet, 
 
 	var as []AuditSummary
 	for _, file := range audits.Files {
-		a := file.Data.Audit
+		a := *file.Data.Meta()
 		s := AuditSummary{ID: a.ID, Total: len(file.Data.Findings)}
 		for _, f := range file.Data.Findings {
 			status := f.StatusForProfile(profile)

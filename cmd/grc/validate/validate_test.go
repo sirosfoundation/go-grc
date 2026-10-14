@@ -239,3 +239,44 @@ func TestValidatePassingOutputAndLoadErrors(t *testing.T) {
 		t.Error("bad config must fail")
 	}
 }
+
+func TestValidateAuditLayoutProblems(t *testing.T) {
+	root := t.TempDir()
+	if err := os.CopyFS(root, os.DirFS(testdataDir())); err != nil {
+		t.Fatal(err)
+	}
+	w := func(rel, body string) {
+		p := filepath.Join(root, rel)
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w("assessments/self/assessment.yaml", "assessment:\n  id: SELF\n  catalogs: [eudi, nosuch]\nfindings: []\n")
+	w("audits/ok/audit.yaml", "audit:\n  id: A\n  pre_audit: self\nfindings: []\n")
+	w("audits/bad/audit.yaml", "audit:\n  id: B\n  pre_audit: missing\nfindings: []\n")
+	w("audits/bad/result.yaml", "result:\n  status: issued\n  documents:\n    - title: esc\n      file: ../../secret.pdf\n    - title: exe\n      file: run.sh\n    - title: http\n      url: http://insecure.example\n")
+	out, err := runValidate(t, root)
+	if err == nil {
+		t.Fatalf("expected validation errors:\n%s", out)
+	}
+	for _, want := range []string{
+		`assessment self: unknown catalog "nosuch"`,
+		`audit bad: pre_audit "missing" is not an assessment`,
+		`result bad: issued result has no scheme`,
+		`result bad: issued result has no certification body`,
+		`result bad: issued result has no issued date`,
+		`document "esc"`,
+		`document "exe"`,
+		`document "http": url must be https`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, `audit ok`) {
+		t.Errorf("valid pre_audit link reported:\n%s", out)
+	}
+}
