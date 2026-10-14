@@ -127,6 +127,7 @@ type GRCFile struct {
 	Mappings     DirConfig          `yaml:"mappings"`
 	Audits       DirConfig          `yaml:"audits"`
 	Assessments  DirConfig          `yaml:"assessments"`
+	Policies     DirConfig          `yaml:"policies"`
 	Site         DirConfig          `yaml:"site"`
 	OSCAL        DirConfig          `yaml:"oscal"`
 	Frameworks   []FrameworkConfig  `yaml:"frameworks"`
@@ -146,9 +147,13 @@ type Config struct {
 	// (real, external audit cycles) its contents are never rendered into
 	// the public site. A missing directory is not an error.
 	AssessmentsDir string
-	SiteDir        string
-	OSCALDir       string
-	RiskDir        string
+
+	// PoliciesDir holds policy documents (Markdown with front matter). When
+	// the directory exists, the site's policies section is generated from it.
+	PoliciesDir string
+	SiteDir     string
+	OSCALDir    string
+	RiskDir     string
 	// RiskMethodologyPath is the resolved path of the risk methodology
 	// document, or "" when none is configured.
 	RiskMethodologyPath string
@@ -172,6 +177,7 @@ func New(root string) (*Config, error) {
 		MappingsDir:    filepath.Join(root, "mappings"),
 		AuditsDir:      filepath.Join(root, "audits"),
 		AssessmentsDir: filepath.Join(root, "assessments"),
+		PoliciesDir:    filepath.Join(root, "policies"),
 		SiteDir:        filepath.Join(root, "site", "docs"),
 		OSCALDir:       filepath.Join(root, "oscal"),
 		Project: ProjectConfig{
@@ -225,6 +231,9 @@ func New(root string) (*Config, error) {
 	}
 	if grc.Audits.Dir != "" {
 		cfg.AuditsDir = filepath.Join(root, grc.Audits.Dir)
+	}
+	if grc.Policies.Dir != "" {
+		cfg.PoliciesDir = filepath.Join(root, grc.Policies.Dir)
 	}
 	if grc.Assessments.Dir != "" {
 		cfg.AssessmentsDir = filepath.Join(root, grc.Assessments.Dir)
