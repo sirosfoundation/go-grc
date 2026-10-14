@@ -14,6 +14,7 @@ import (
 	"github.com/sirosfoundation/go-grc/pkg/catalog"
 	"github.com/sirosfoundation/go-grc/pkg/config"
 	"github.com/sirosfoundation/go-grc/pkg/mapping"
+	"github.com/sirosfoundation/go-grc/pkg/policy"
 	"github.com/sirosfoundation/go-grc/pkg/risk"
 	"github.com/sirosfoundation/go-grc/pkg/soa"
 	"github.com/sirosfoundation/go-grc/pkg/yearcycle"
@@ -72,6 +73,10 @@ func Run(root, profile string) error {
 	allSoAs, err := soa.Load(cfg.AuditsDir)
 	if err != nil {
 		return fmt.Errorf("loading statements of applicability: %w", err)
+	}
+	allPolicies, err := policy.Load(cfg.PoliciesDir)
+	if err != nil {
+		return fmt.Errorf("loading policies: %w", err)
 	}
 	maps, err := mapping.Load(cfg.MappingsDir, cfg.Frameworks)
 	if err != nil {
@@ -217,6 +222,14 @@ func Run(root, profile string) error {
 			return err
 		}
 	}
+	// Policies: visibility alone decides what is public; status is displayed.
+	pols := visiblePolicies(allPolicies, isPublic)
+	if len(pols) > 0 {
+		if err := generatePolicies(cfg, pols, isPublic); err != nil {
+			cfg.SiteDir = origSiteDir
+			return err
+		}
+	}
 	// Landing page
 	if err := generateLanding(cfg, cat, activeFindings, isPublic); err != nil {
 		cfg.SiteDir = origSiteDir
@@ -239,6 +252,13 @@ func Run(root, profile string) error {
 		// Nothing to show on this profile, e.g. a statement went back to
 		// draft: drop pages published by an earlier render.
 		_ = os.RemoveAll(filepath.Join(cfg.SiteDir, "audits"))
+	}
+	if len(pols) > 0 {
+		subdirs = append(subdirs, "policies")
+	} else if _, err := os.Stat(cfg.PoliciesDir); err == nil {
+		// A policies directory is configured but nothing is visible on this
+		// profile: drop pages left by an earlier (e.g. private) render.
+		_ = os.RemoveAll(filepath.Join(cfg.SiteDir, "policies"))
 	}
 	if cfg.YearCycle.Source != "" && (!isPublic || cfg.YearCycle.Public) {
 		subdirs = append(subdirs, "year-cycle")

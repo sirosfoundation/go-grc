@@ -154,6 +154,29 @@ The `derive` command computes statuses bottom-up:
 > confirmed". The old `validated` status is a deprecated alias, read as
 > `verified`; "evidence" is tracked separately.
 
+### Policies
+
+When the `policies` directory exists, `grc render` generates the site's policies
+section from its `*.md` files. Two **independent** front matter properties
+apply:
+
+```yaml
+---
+visibility: public        # public | private: decides who can read it
+status: approved          # draft | in_review | approved: lifecycle, display only
+approved_date: 2026-09-10 # required when status is approved
+---
+```
+
+- `visibility` alone decides publication. Only an explicit `public` appears on
+  the public site; a missing or unknown value is private (fail closed).
+- `status` never affects visibility. Every policy, public or private, gets a
+  status box under its heading.
+- The private site shows every policy; the public site only `visibility: public`.
+- `grc validate` requires both properties, and `approved_date` for approved ones.
+- Other front matter (`sidebar_label`, `tags`, ...) is passed through to Docusaurus.
+- Without a `policies` directory nothing is generated and hand-curated pages are left alone.
+
 ## Installation
 
 ```bash
@@ -326,6 +349,8 @@ audits:
   dir: audits            # real audit cycles: <cycle>/{audit,soa}.yaml
 assessments:
   dir: assessments       # internal self-assessments, never public
+policies:
+  dir: policies          # policy documents; the site's policies section is generated from it
 
 site:
   dir: site/docs

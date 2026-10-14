@@ -367,3 +367,87 @@ func TestRenderRejectsCollidingCycleSlugs(t *testing.T) {
 		t.Error("colliding cycle slugs were accepted")
 	}
 }
+
+func writePolicy(t *testing.T, root, name, fm string) {
+	t.Helper()
+	p := filepath.Join(root, "policies", name+".md")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\n" + fm + "\n---\n\n# Policy " + name + "\n\nSECRET-BODY-" + name + "\n"
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRenderPoliciesVisibilityDecidesNotStatus(t *testing.T) {
+	root := renderFixture(t, "public", approved)
+	writePolicy(t, root, "pub-draft", "visibility: public\nstatus: draft")
+	writePolicy(t, root, "priv-approved", "visibility: private\nstatus: approved\napproved_date: 2026-09-10")
+	writePolicy(t, root, "no-visibility", "status: approved\napproved_date: 2026-09-10")
+	renderInto(t, root, "public", approved)
+
+	docs := filepath.Join(root, "site", "docs", "policies")
+	page, err := os.ReadFile(filepath.Join(docs, "pub-draft.md"))
+	if err != nil {
+		t.Fatalf("public draft policy not published: %v", err)
+	}
+	if !strings.Contains(string(page), "Status:** Draft") {
+		t.Errorf("status widget missing on public policy:\n%s", page)
+	}
+	for _, hidden := range []string{"priv-approved", "no-visibility"} {
+		if _, err := os.Stat(filepath.Join(docs, hidden+".md")); err == nil {
+			t.Errorf("%s leaked into the public site", hidden)
+		}
+	}
+	for p, body := range readAll(t, filepath.Join(root, "site", "docs")) {
+		if strings.Contains(body, "SECRET-BODY-priv") || strings.Contains(body, "SECRET-BODY-no-") {
+			t.Errorf("private policy content in public output: %s", p)
+		}
+	}
+}
+
+func TestRenderPoliciesPrivateShowsAllWithWidget(t *testing.T) {
+	root := renderFixture(t, "private", approved)
+	writePolicy(t, root, "a", "visibility: public\nstatus: approved\napproved_date: 2026-09-10")
+	writePolicy(t, root, "b", "visibility: private\nstatus: in_review")
+	renderInto(t, root, "private", approved)
+	docs := filepath.Join(root, "site", "docs", "policies")
+	a, _ := os.ReadFile(filepath.Join(docs, "a.md"))
+	b, _ := os.ReadFile(filepath.Join(docs, "b.md"))
+	if !strings.Contains(string(a), "approved 2026-09-10") || !strings.Contains(string(a), "Visibility:** public") {
+		t.Errorf("widget wrong for a:\n%s", a)
+	}
+	if !strings.Contains(string(b), "Status:** In review") || !strings.Contains(string(b), "Visibility:** internal") {
+		t.Errorf("widget wrong for b:\n%s", b)
+	}
+}
+
+func TestRenderPoliciesPublicAfterPrivateDropsStale(t *testing.T) {
+	root := renderFixture(t, "private", approved)
+	writePolicy(t, root, "b", "visibility: private\nstatus: approved\napproved_date: 2026-09-10")
+	renderInto(t, root, "private", approved)
+	docs := filepath.Join(root, "site", "docs", "policies")
+	if _, err := os.Stat(filepath.Join(docs, "b.md")); err != nil {
+		t.Fatalf("private render lacks policy: %v", err)
+	}
+	renderInto(t, root, "public", approved)
+	if _, err := os.Stat(docs); err == nil {
+		t.Error("private policy pages survived a public render")
+	}
+}
+
+func TestRenderWithoutPoliciesDirLeavesHandCuratedPages(t *testing.T) {
+	root := renderFixture(t, "public", approved)
+	hand := filepath.Join(root, "site", "docs", "policies", "hand.md")
+	if err := os.MkdirAll(filepath.Dir(hand), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hand, []byte("hand"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	renderInto(t, root, "public", approved)
+	if _, err := os.Stat(hand); err != nil {
+		t.Errorf("render deleted hand-curated policies though no policies dir exists: %v", err)
+	}
+}
