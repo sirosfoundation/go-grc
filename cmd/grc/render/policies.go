@@ -1,6 +1,7 @@
 package render
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -32,7 +33,11 @@ func generatePolicies(cfg *config.Config, pols []*policy.Policy, isPublic bool) 
 	if err := writePage(filepath.Join(dir, "_category_.json"), categoryJSON("Policies", 5)); err != nil {
 		return err
 	}
-	if err := writePage(filepath.Join(dir, "index.md"), renderPolicyIndex(pols, isPublic)); err != nil {
+	changes := map[string]*policy.Change{}
+	for _, p := range pols {
+		changes[p.Slug] = policy.LastChange(context.Background(), p.Path)
+	}
+	if err := writePage(filepath.Join(dir, "index.md"), renderPolicyIndex(pols, changes, cfg.Project.Repo, isPublic)); err != nil {
 		return err
 	}
 	seen := map[string]bool{}
@@ -52,22 +57,60 @@ func generatePolicies(cfg *config.Config, pols []*policy.Policy, isPublic bool) 
 	return nil
 }
 
-func renderPolicyIndex(pols []*policy.Policy, isPublic bool) string {
+// renderPolicyIndex lists the policies. The private profile splits them into
+// public and private tables, so it is clear at a glance what is published.
+func renderPolicyIndex(pols []*policy.Policy, changes map[string]*policy.Change, repo string, isPublic bool) string {
 	var b strings.Builder
 	b.WriteString("---\ntitle: \"Policies\"\nsidebar_label: \"Overview\"\nsidebar_position: 0\n---\n\n# Policies\n\n")
-	if isPublic {
-		b.WriteString("| Policy | Status |\n|---|---|\n")
-	} else {
-		b.WriteString("| Policy | Status | Visibility |\n|---|---|---|\n")
-	}
+	var pub, priv []*policy.Policy
 	for _, p := range pols {
-		if isPublic {
-			fmt.Fprintf(&b, "| [%s](/policies/%s) | %s |\n", cell(p.Title), p.Slug, stateLabel(p.State()))
+		if p.Public() {
+			pub = append(pub, p)
 		} else {
-			fmt.Fprintf(&b, "| [%s](/policies/%s) | %s | %s |\n", cell(p.Title), p.Slug, stateLabel(p.State()), visibilityLabel(p))
+			priv = append(priv, p)
 		}
 	}
+	if isPublic {
+		b.WriteString(policyTable(pub, changes, repo, isPublic))
+		return b.String()
+	}
+	for _, g := range []struct {
+		title string
+		intro string
+		pols  []*policy.Policy
+	}{
+		{"Public policies", "Published on the public site.", pub},
+		{"Private policies", "Internal only; never published.", priv},
+	} {
+		if len(g.pols) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "## %s\n\n%s\n\n%s\n", g.title, g.intro, policyTable(g.pols, changes, repo, isPublic))
+	}
 	return b.String()
+}
+
+func policyTable(pols []*policy.Policy, changes map[string]*policy.Change, repo string, isPublic bool) string {
+	var b strings.Builder
+	b.WriteString("| Policy | Status | Last change |\n|---|---|---|\n")
+	for _, p := range pols {
+		fmt.Fprintf(&b, "| [%s](/policies/%s) | %s | %s |\n", cell(p.Title), p.Slug, stateLabel(p.State()), lastChangeCell(changes[p.Slug], repo, isPublic))
+	}
+	return b.String()
+}
+
+// lastChangeCell shows when a policy last changed. The private profile links
+// the commit; the public one shows the time only, since the repository is not
+// public and the link would not resolve for its readers.
+func lastChangeCell(c *policy.Change, repo string, isPublic bool) string {
+	if c == nil {
+		return "–"
+	}
+	stamp := c.Time.Format("2006-01-02 15:04") + " UTC"
+	if isPublic || repo == "" {
+		return stamp
+	}
+	return fmt.Sprintf("[%s](https://github.com/%s/commit/%s)", stamp, repo, c.SHA)
 }
 
 func visibilityLabel(p *policy.Policy) string {
