@@ -151,6 +151,9 @@ func run(root string) error {
 		for _, p := range pol.Validate() {
 			add(fmt.Sprintf("policy %s: %s", pol.Slug, p))
 		}
+		for _, w := range pol.Warnings() {
+			warnings = append(warnings, fmt.Sprintf("policy %s: %s", pol.Slug, w))
+		}
 	}
 
 	// Validate audits
