@@ -5,23 +5,24 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/sirosfoundation/go-grc/pkg/audit"
 	"github.com/sirosfoundation/go-grc/pkg/config"
 	"github.com/sirosfoundation/go-grc/pkg/risk"
 )
 
-func generateRiskRegister(cfg *config.Config, risks *risk.RiskSet) error {
+func generateRiskRegister(cfg *config.Config, risks *risk.RiskSet, audits *audit.AuditSet) error {
 	dir := filepath.Join(cfg.SiteDir, "risk-register")
 	if err := writePage(filepath.Join(dir, "_category_.json"), categoryJSON("Risk Register", 7)); err != nil {
 		return err
 	}
-	if err := writePage(filepath.Join(dir, "index.md"), renderRiskIndex(risks)); err != nil {
+	if err := writePage(filepath.Join(dir, "index.md"), renderRiskIndex(risks, audits)); err != nil {
 		return err
 	}
 
 	for _, file := range risks.Files {
 		for _, r := range file.Data.Risks {
 			slug := idSlug(r.ID)
-			if err := writePage(filepath.Join(dir, slug+".md"), renderRiskPage(&r, file.Data.Register.Owner)); err != nil {
+			if err := writePage(filepath.Join(dir, slug+".md"), renderRiskPage(&r, file.Data.Register.Owner, audits)); err != nil {
 				return err
 			}
 		}
@@ -29,7 +30,7 @@ func generateRiskRegister(cfg *config.Config, risks *risk.RiskSet) error {
 	return nil
 }
 
-func renderRiskIndex(risks *risk.RiskSet) string {
+func renderRiskIndex(risks *risk.RiskSet, audits *audit.AuditSet) string {
 	var b strings.Builder
 	b.WriteString("---\nsidebar_label: Risk Register\nsidebar_position: 1\ntitle: Risk Register\n---\n\n# Risk Register\n\n")
 	b.WriteString("Risks with owners, compensating controls and residual risk assessment (accepted, transferred, monitoring, or draft proposals awaiting a decision).\n\n")
@@ -44,15 +45,15 @@ func renderRiskIndex(risks *risk.RiskSet) string {
 			b.WriteString(":::warning\nThis risk register is overdue for review.\n:::\n\n")
 		}
 
-		b.WriteString("| Risk | Finding | Owner | Severity | Residual | Status | Treatment | Profiles |\n")
-		b.WriteString("|------|---------|-------|----------|----------|--------|-----------|----------|\n")
+		b.WriteString("| Risk | Title | Finding | Owner | Severity | Residual | Status | Treatment | Profiles |\n")
+		b.WriteString("|------|-------|---------|-------|----------|----------|--------|-----------|----------|\n")
 		for _, r := range file.Data.Risks {
 			profiles := "all"
 			if len(r.Profiles) > 0 {
 				profiles = strings.Join(r.Profiles, ", ")
 			}
-			fmt.Fprintf(&b, "| [%s](/risk-register/%s) | %s | %s | %s %s | %s %s | %s | %s | %s |\n",
-				r.ID, idSlug(r.ID), r.Finding, riskOwnerCell(r.Owner),
+			fmt.Fprintf(&b, "| [%s](/risk-register/%s) | %s | %s | %s | %s %s | %s %s | %s | %s | %s |\n",
+				r.ID, idSlug(r.ID), cell(r.Title), riskFindingCell(r.Finding, audits), riskOwnerCell(r.Owner),
 				sevIcon(r.Severity), r.Severity,
 				sevIcon(r.ResidualSeverity), r.ResidualSeverity,
 				r.Status, treatmentCell(r.TreatmentAction), profiles)
@@ -62,13 +63,13 @@ func renderRiskIndex(risks *risk.RiskSet) string {
 	return b.String()
 }
 
-func renderRiskPage(r *risk.Risk, owner string) string {
+func renderRiskPage(r *risk.Risk, owner string, audits *audit.AuditSet) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "---\ntitle: \"%s — %s\"\nsidebar_label: \"%s\"\n---\n\n", r.ID, r.Title, r.ID)
 	fmt.Fprintf(&b, "# %s — %s\n\n", r.ID, r.Title)
 
 	b.WriteString("| | |\n|---|---|\n")
-	fmt.Fprintf(&b, "| **Finding** | %s |\n", r.Finding)
+	fmt.Fprintf(&b, "| **Finding** | %s |\n", riskFindingCell(r.Finding, audits))
 	fmt.Fprintf(&b, "| **Risk Owner** | %s |\n", riskOwnerCell(r.Owner))
 	fmt.Fprintf(&b, "| **Register Owner** | %s |\n", ownerBadge(owner))
 	fmt.Fprintf(&b, "| **Original Severity** | %s %s |\n", sevIcon(r.Severity), r.Severity)
@@ -112,6 +113,19 @@ func renderRiskPage(r *risk.Risk, owner string) string {
 	}
 
 	return b.String()
+}
+
+// riskFindingCell renders the finding a risk stems from, with its title,
+// linked to its page (or tracking issue) when it has one.
+func riskFindingCell(id string, audits *audit.AuditSet) string {
+	if id == "" {
+		return "–"
+	}
+	ref := audits.FindingsByID[id]
+	if ref == nil {
+		return id
+	}
+	return fmt.Sprintf("%s — %s", findingRef(ref.Finding), cell(ref.Finding.Title))
 }
 
 // riskOwnerCell renders a risk's accountable owner, flagging a missing one
