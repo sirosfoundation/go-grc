@@ -18,6 +18,7 @@ import (
 	"github.com/sirosfoundation/go-grc/pkg/catalog"
 	"github.com/sirosfoundation/go-grc/pkg/config"
 	"github.com/sirosfoundation/go-grc/pkg/mapping"
+	"github.com/sirosfoundation/go-grc/pkg/policy"
 	"github.com/sirosfoundation/go-grc/pkg/risk"
 	"github.com/sirosfoundation/go-grc/pkg/yearcycle"
 )
@@ -29,6 +30,7 @@ type complianceData struct {
 	cfg      *config.Config
 	catalog  *catalog.Catalog
 	audits   *audit.AuditSet
+	policies []*policy.Policy
 	risks    *risk.RiskSet
 	mappings mapping.Mappings
 	cycles   []*yearcycle.YearCycle
@@ -93,8 +95,17 @@ func (cd *complianceData) reload() error {
 		}
 	}
 
+	var pols []*policy.Policy
+	if cfg.PoliciesDir != "" {
+		pols, err = policy.Load(cfg.PoliciesDir)
+		if err != nil {
+			log.Printf("MCP: warning: loading policies: %v", err)
+		}
+	}
+
 	cd.mu.Lock()
 	defer cd.mu.Unlock()
+	cd.policies = pols
 	cd.cfg = cfg
 	cd.catalog = cat
 	cd.audits = audits
@@ -115,6 +126,7 @@ Governance, Risk & Compliance (GRC) data. You have access to:
 - Framework compliance mappings (EUDI, ISO 27001, GDPR, OWASP ASVS)
 - Architecture documentation (threat models, crypto inventory, network architecture, etc.)
 - Year cycle of compliance activities
+- Policies and procedures as a document register (grc://policies) and full text (grc://policy/{slug})
 
 Use this data to help with compliance assessments, audit preparation, gap analysis,
 risk reviews, architecture security analysis, and bid requirement responses.
@@ -137,6 +149,21 @@ to the methodology document in the same change (including its version and histor
 never change one without the other. Severity values are derived by the methodology, not
 chosen freely.
 
+Audits and assessments are different things. An audit (audits/<cycle>/) is a real
+certification or surveillance audit; an assessment (assessments/<cycle>/) is an internal
+self-assessment. Findings belong to exactly one of them and each has a tracking issue.
+Cite the audit or assessment a finding belongs to. Only audit results are ever public.
+
+Policies are documents under change control. Their metadata is in front matter (document_id,
+owner, approver, review_cycle, version, status, visibility, approved_date), never maintained
+by hand in the text. A draft has no version, only a revision number counted from git; a
+version exists only once the document is approved and tagged. Revision history, last change
+and approvals come from git and pull requests, not from a hand-written table. Approval is
+a role's decision recorded outside the model: never mark a document approved, set a version
+or an approval date, or change visibility yourself. Propose the change in a pull request and
+say who has to approve it (the approver role in the document). Report documents with missing
+metadata, an overdue review, or edits since approval instead of papering over them.
+
 Always cite specific control IDs, finding IDs, and framework requirements when making
 recommendations or compliance claims.`
 
@@ -152,6 +179,7 @@ func newMCPHandler(data *complianceData) *mcpserver.StreamableHTTPServer {
 
 	registerResources(s, data)
 	registerResourceTemplates(s, data)
+	registerPolicyResources(s, data)
 	registerTools(s, data)
 	registerBidTools(s, data)
 	registerPrompts(s, data)
