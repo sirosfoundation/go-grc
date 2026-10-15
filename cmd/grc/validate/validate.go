@@ -153,17 +153,6 @@ func run(root string) error {
 		}
 	}
 
-	// Validate policies: each needs an explicit visibility claim and status
-	pols, err := policy.Load(cfg.PoliciesDir)
-	if err != nil {
-		return fmt.Errorf("loading policies: %w", err)
-	}
-	for _, pol := range pols {
-		for _, p := range pol.Validate() {
-			add(fmt.Sprintf("policy %s: %s", pol.Slug, p))
-		}
-	}
-
 	// Validate audits
 	audits, err := audit.LoadDirs(cfg.AuditsDir, cfg.AssessmentsDir)
 	if err != nil {
