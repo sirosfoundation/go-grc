@@ -215,7 +215,7 @@ func Run(root, profile string) error {
 			return fmt.Errorf("loading risk register: %w", err)
 		}
 		if len(risks.Files) > 0 {
-			if err := generateRiskRegister(cfg, risks); err != nil {
+			if err := generateRiskRegister(cfg, risks, audits); err != nil {
 				cfg.SiteDir = origSiteDir
 				return err
 			}

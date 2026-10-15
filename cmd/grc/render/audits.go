@@ -28,6 +28,9 @@ type auditView struct {
 	Title  string
 	SoA    *soa.Loaded
 	Result *result.Loaded
+	// Findings are the audit's findings. Set on the private profile only:
+	// findings never appear on the public site.
+	Findings []*audit.Finding
 }
 
 // assessmentView is one internal assessment, shown on the private profile only.
@@ -36,7 +39,7 @@ type assessmentView struct {
 	Slug     string
 	Title    string
 	Catalogs []string
-	Findings int
+	Findings []*audit.Finding
 	SoA      *soa.Loaded
 }
 
@@ -64,6 +67,9 @@ func collectAudits(set *audit.AuditSet, soas []*soa.Loaded, results []*result.Lo
 		v := get(f.Name)
 		if t := f.Data.Meta().Title; t != "" {
 			v.Title = t
+		}
+		if !isPublic {
+			v.Findings = sortedFindings(f.Data.Findings)
 		}
 	}
 	for _, s := range soas {
@@ -104,7 +110,7 @@ func collectAudits(set *audit.AuditSet, soas []*soa.Loaded, results []*result.Lo
 				continue
 			}
 			m := f.Data.Meta()
-			v := &assessmentView{Name: f.Name, Slug: cycleSlug(f.Name), Title: m.Title, Catalogs: m.Catalogs, Findings: len(f.Data.Findings)}
+			v := &assessmentView{Name: f.Name, Slug: cycleSlug(f.Name), Title: m.Title, Catalogs: m.Catalogs, Findings: sortedFindings(f.Data.Findings)}
 			if v.Title == "" {
 				v.Title = f.Name
 			}
@@ -322,7 +328,10 @@ func renderAuditPage(v *auditView, docs []docLink, isPublic bool) string {
 		b.WriteString("\n")
 	}
 	if v.SoA != nil {
-		fmt.Fprintf(&b, "## Statement of applicability\n\n[%s](/audits/%s/soa) · %s\n", cell(soaTitle(v.SoA)), v.Slug, stateLabel(v.SoA.SoA.State()))
+		fmt.Fprintf(&b, "## Statement of applicability\n\n[%s](/audits/%s/soa) · %s\n\n", cell(soaTitle(v.SoA)), v.Slug, stateLabel(v.SoA.SoA.State()))
+	}
+	if !isPublic {
+		b.WriteString(renderFindingsSection(v.Findings))
 	}
 	return b.String()
 }
@@ -344,7 +353,7 @@ func renderAssessmentsIndex(as []*assessmentView) string {
 		if v.SoA != nil {
 			st = stateLabel(v.SoA.SoA.State())
 		}
-		fmt.Fprintf(&b, "| [%s](/audits/assessments/%s) | %s | %d | %s |\n", cell(v.Title), v.Slug, cell(strings.Join(v.Catalogs, ", ")), v.Findings, st)
+		fmt.Fprintf(&b, "| [%s](/audits/assessments/%s) | %s | %d | %s |\n", cell(v.Title), v.Slug, cell(strings.Join(v.Catalogs, ", ")), len(v.Findings), st)
 	}
 	return b.String()
 }
@@ -356,9 +365,18 @@ func renderAssessmentPage(v *assessmentView) string {
 	if len(v.Catalogs) > 0 {
 		fmt.Fprintf(&b, "**Catalogs (implicit statement of applicability):** %s\n\n", cell(strings.Join(v.Catalogs, ", ")))
 	}
-	fmt.Fprintf(&b, "**Findings:** %d\n\n", v.Findings)
 	if v.SoA != nil {
-		fmt.Fprintf(&b, "## Statement of applicability\n\n[%s](/audits/assessments/%s/soa) · %s\n", cell(soaTitle(v.SoA)), v.Slug, stateLabel(v.SoA.SoA.State()))
+		fmt.Fprintf(&b, "## Statement of applicability\n\n[%s](/audits/assessments/%s/soa) · %s\n\n", cell(soaTitle(v.SoA)), v.Slug, stateLabel(v.SoA.SoA.State()))
 	}
+	b.WriteString(renderFindingsSection(v.Findings))
 	return b.String()
+}
+
+// renderFindingsSection is the findings part of an audit or assessment
+// page: the live view of what the audit has found and where it is tracked.
+func renderFindingsSection(fs []*audit.Finding) string {
+	if len(fs) == 0 {
+		return "## Findings\n\nNo findings.\n"
+	}
+	return fmt.Sprintf("## Findings\n\n%d findings: %s.\n\n%s", len(fs), findingStatusSummary(fs), renderFindingTable(fs))
 }
