@@ -87,15 +87,44 @@ func (s *SoA) State() string {
 
 // Loaded is a statement together with where it came from.
 type Loaded struct {
-	// Cycle is the audit cycle directory name, e.g. "iso27001-devprocess-2026-07".
+	// Kind is KindAudit for a real audit's statement and KindAssessment for an
+	// internal assessment's. Assessment statements are never public.
+	Kind string
+	// Cycle is the audit (or assessment) directory name, e.g.
+	// "iso27001-devprocess-2026-07".
 	Cycle string
 	Path  string
 	SoA   SoA
 }
 
-// Load reads "<auditsDir>/<cycle>/soa.yaml" for every cycle directory that
-// has one, ordered by cycle name. A missing auditsDir yields none.
-func Load(auditsDir string) ([]*Loaded, error) {
+const (
+	KindAudit      = "audit"
+	KindAssessment = "assessment"
+)
+
+// LoadAll reads the statements of real audits and of internal assessments,
+// audits first.
+func LoadAll(auditsDir, assessmentsDir string) ([]*Loaded, error) {
+	out, err := LoadDir(auditsDir, KindAudit)
+	if err != nil {
+		return nil, err
+	}
+	if assessmentsDir == "" {
+		return out, nil
+	}
+	more, err := LoadDir(assessmentsDir, KindAssessment)
+	if err != nil {
+		return nil, err
+	}
+	return append(out, more...), nil
+}
+
+// Load reads the statements of real audits.
+func Load(auditsDir string) ([]*Loaded, error) { return LoadDir(auditsDir, KindAudit) }
+
+// LoadDir reads "<dir>/<name>/soa.yaml" for every subdirectory that has one,
+// ordered by name. A missing dir yields none.
+func LoadDir(auditsDir, kind string) ([]*Loaded, error) {
 	entries, err := os.ReadDir(auditsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -120,7 +149,7 @@ func Load(auditsDir string) ([]*Loaded, error) {
 		if err := yaml.Unmarshal(data, &s); err != nil {
 			return nil, fmt.Errorf("parsing %s: %w", path, err)
 		}
-		out = append(out, &Loaded{Cycle: e.Name(), Path: path, SoA: s})
+		out = append(out, &Loaded{Kind: kind, Cycle: e.Name(), Path: path, SoA: s})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Cycle < out[j].Cycle })
 	return out, nil

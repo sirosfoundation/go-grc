@@ -15,6 +15,7 @@ import (
 	"github.com/sirosfoundation/go-grc/pkg/config"
 	"github.com/sirosfoundation/go-grc/pkg/mapping"
 	"github.com/sirosfoundation/go-grc/pkg/policy"
+	"github.com/sirosfoundation/go-grc/pkg/result"
 	"github.com/sirosfoundation/go-grc/pkg/risk"
 	"github.com/sirosfoundation/go-grc/pkg/soa"
 	"github.com/sirosfoundation/go-grc/pkg/yearcycle"
@@ -70,9 +71,13 @@ func Run(root, profile string) error {
 	if err != nil {
 		return fmt.Errorf("loading audits: %w", err)
 	}
-	allSoAs, err := soa.Load(cfg.AuditsDir)
+	allSoAs, err := soa.LoadAll(cfg.AuditsDir, cfg.AssessmentsDir)
 	if err != nil {
 		return fmt.Errorf("loading statements of applicability: %w", err)
+	}
+	allResults, err := result.Load(cfg.AuditsDir)
+	if err != nil {
+		return fmt.Errorf("loading audit results: %w", err)
 	}
 	allPolicies, err := policy.Load(cfg.PoliciesDir)
 	if err != nil {
@@ -85,8 +90,11 @@ func Run(root, profile string) error {
 
 	isPublic := profile != "private"
 
-	// Statements are public only once approved; in-progress ones stay internal.
-	soas := publishable(allSoAs, isPublic)
+	// What each profile may show of the audits: results only once issued,
+	// statements only once approved, never assessments. The unfiltered set
+	// is kept to feed the private views.
+	auditViews, assessmentViews := collectAudits(audits, allSoAs, allResults, isPublic)
+	hasAudits := len(auditViews) > 0 || len(assessmentViews) > 0
 
 	// Internal assessments are never public: drop them before anything that
 	// renders can see them.
@@ -189,9 +197,12 @@ func Run(root, profile string) error {
 			return err
 		}
 	}
-	// Statements of Applicability (public and private)
-	if len(soas) > 0 {
-		if err := generateSoAs(cfg, soas, isPublic); err != nil {
+	// Supporting documents of earlier renders (possibly of the other profile)
+	// must not linger in the static directory.
+	_ = os.RemoveAll(filepath.Join(filepath.Dir(origSiteDir), "static", staticAuditsDir))
+	// Audits: results, statements of applicability, internal assessments
+	if hasAudits {
+		if err := generateAudits(cfg, auditViews, assessmentViews, isPublic); err != nil {
 			cfg.SiteDir = origSiteDir
 			return err
 		}
@@ -246,7 +257,7 @@ func Run(root, profile string) error {
 			subdirs = append(subdirs, "risk-register")
 		}
 	}
-	if len(soas) > 0 {
+	if hasAudits {
 		subdirs = append(subdirs, "audits")
 	} else {
 		// Nothing to show on this profile, e.g. a statement went back to
@@ -300,7 +311,7 @@ func Run(root, profile string) error {
 	}
 
 	// Generate Docusaurus sidebars.ts and update config based on profile
-	if err := generateDocusaurusConfig(cfg, isPublic, len(soas) > 0); err != nil {
+	if err := generateDocusaurusConfig(cfg, isPublic, hasAudits); err != nil {
 		return err
 	}
 

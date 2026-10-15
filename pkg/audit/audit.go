@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -16,6 +17,16 @@ type Audit struct {
 	Assurance string `yaml:"assurance"`
 	Scope     string `yaml:"scope"`
 	Method    string `yaml:"method"`
+
+	// Auditor is the external body or person that conducted a real audit.
+	Auditor string `yaml:"auditor,omitempty"`
+	// PreAudit names the internal assessment (its directory or file name)
+	// that served as this audit's pre-audit.
+	PreAudit string `yaml:"pre_audit,omitempty"`
+	// Catalogs lists the requirement catalogs (framework IDs) an assessment
+	// covers. Together they are its implicit statement of applicability when
+	// it has no soa.yaml of its own.
+	Catalogs []string `yaml:"catalogs,omitempty"`
 }
 
 type IssueRef struct {
@@ -59,9 +70,21 @@ type Finding struct {
 	Profiles      map[string]ProfileOverride `yaml:"profiles,omitempty"`
 }
 
+// AuditFile is a findings file. Real audits carry an "audit:" header and
+// internal assessments an "assessment:" header; "audit:" is still accepted in
+// assessments for files written before the two were separated.
 type AuditFile struct {
-	Audit    Audit     `yaml:"audit"`
-	Findings []Finding `yaml:"findings"`
+	Audit      Audit     `yaml:"audit,omitempty"`
+	Assessment *Audit    `yaml:"assessment,omitempty"`
+	Findings   []Finding `yaml:"findings"`
+}
+
+// Meta returns the header, whichever key it was written under.
+func (af *AuditFile) Meta() *Audit {
+	if af.Assessment != nil {
+		return af.Assessment
+	}
+	return &af.Audit
 }
 
 type AuditSet struct {
@@ -84,6 +107,9 @@ const (
 type LoadedFile struct {
 	Path string
 	Kind Kind
+	// Name identifies the file within its kind: the directory name of a
+	// per-audit layout, or the file stem of a flat file.
+	Name string
 	Data AuditFile
 }
 
@@ -132,45 +158,67 @@ func (set *AuditSet) loadDir(dir string, kind Kind, required bool) error {
 	}
 
 	for _, entry := range entries {
-		var path string
+		var path, name string
 		switch {
 		case entry.IsDir():
-			path = filepath.Join(dir, entry.Name(), "audit.yaml")
-			if _, err := os.Stat(path); err != nil {
+			name = entry.Name()
+			path = findingsFile(filepath.Join(dir, name), kind)
+			if path == "" {
 				continue
 			}
 		case filepath.Ext(entry.Name()) == ".yaml":
+			name = strings.TrimSuffix(entry.Name(), ".yaml")
 			path = filepath.Join(dir, entry.Name())
 		default:
 			continue
 		}
-		if err := set.loadFile(path, kind); err != nil {
+		if err := set.loadFile(path, name, kind); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (set *AuditSet) loadFile(path string, kind Kind) error {
-	name, _ := filepath.Rel(filepath.Dir(filepath.Dir(path)), path)
+// findingsFile returns the findings file of a per-audit directory: audit.yaml
+// for a real audit; assessment.yaml (or the older audit.yaml) for an
+// assessment. It returns "" when there is none.
+func findingsFile(dir string, kind Kind) string {
+	names := []string{"audit.yaml"}
+	if kind == KindAssessment {
+		names = []string{"assessment.yaml", "audit.yaml"}
+	}
+	for _, n := range names {
+		p := filepath.Join(dir, n)
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
+func (set *AuditSet) loadFile(path, name string, kind Kind) error {
+	label, _ := filepath.Rel(filepath.Dir(filepath.Dir(path)), path)
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return fmt.Errorf("reading %s: %w", name, err)
+		return fmt.Errorf("reading %s: %w", label, err)
 	}
 
 	var af AuditFile
 	if err := yaml.Unmarshal(data, &af); err != nil {
-		return fmt.Errorf("parsing %s: %w", name, err)
+		return fmt.Errorf("parsing %s: %w", label, err)
+	}
+	if kind == KindAudit && af.Assessment != nil {
+		return fmt.Errorf("%s: an \"assessment:\" header in the audits directory; internal assessments belong in the assessments directory", label)
 	}
 
-	set.Files = append(set.Files, LoadedFile{Path: path, Kind: kind, Data: af})
+	set.Files = append(set.Files, LoadedFile{Path: path, Kind: kind, Name: name, Data: af})
 	file := &set.Files[len(set.Files)-1]
 	for i := range file.Data.Findings {
 		f := &file.Data.Findings[i]
 		ref := &FindingRef{File: file, Index: i, Finding: f}
 
 		if _, dup := set.FindingsByID[f.ID]; dup {
-			return fmt.Errorf("duplicate finding ID: %s in %s", f.ID, name)
+			return fmt.Errorf("duplicate finding ID: %s in %s", f.ID, label)
 		}
 		set.FindingsByID[f.ID] = ref
 

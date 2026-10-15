@@ -113,30 +113,67 @@ calendar UIDs that may change over time.
 
 ### Audits and internal assessments
 
-Findings come in two kinds, kept in separate directories:
+Two different things, kept in separate directories, one directory each:
 
-- **Real audits** (`audits.dir`, default `audits/`): certification and
-  surveillance audit cycles. One directory per cycle, e.g.
-  `audits/iso27001-2026-07/`, holding `audit.yaml` (findings),
-  `soa.yaml` (Statement of Applicability) and `references/` (supporting
-  material, never rendered). Flat `audits/*.yaml` findings files are still
-  read and count as real audits.
-- **Internal assessments** (`assessments.dir`, default `assessments/`):
-  self-assessments. They feed derivation, sync and the private site like any
-  other findings, but are **never rendered on the public profile**.
+- **Assessments** (`assessments.dir`, default `assessments/`) are internal.
+  They exist to generate findings (and so tracking issues, privately) and to
+  update the control catalog through `grc derive`. They are **never rendered
+  on the public profile**.
+  ```
+  assessments/<name>/assessment.yaml   findings; header key `assessment:`
+  assessments/<name>/soa.yaml          optional explicit statement of applicability
+  assessments/<name>/references/       supporting material, never rendered
+  ```
+  Without a `soa.yaml`, an assessment's statement of applicability is
+  implicit: the requirement catalogs it lists in `assessment.catalogs`
+  (framework IDs from `.grc.yaml`). Flat `assessments/<name>.yaml` files work too.
+- **Audits** (`audits.dir`, default `audits/`) are conducted by an external
+  auditor, usually after an assessment served as the pre-audit
+  (`audit.pre_audit: <assessment name>`). A real audit has a more detailed,
+  scoped statement of applicability and a published outcome:
+  ```
+  audits/<cycle>/audit.yaml      findings; header key `audit:` (auditor, pre_audit, ...)
+  audits/<cycle>/soa.yaml        statement of applicability
+  audits/<cycle>/result.yaml     the compliance result (certificate)
+  audits/<cycle>/references/     supporting documents
+  ```
 
-A Statement of Applicability (`soa:` header plus `requirements:` rows of
+**Statement of applicability** (`soa:` header plus `requirements:` rows of
 `annex_a`, `title`, `applicable` (`true`/`false`/`partial`), `status`
-(`implemented`/`partial`/`gap`), `justification`, `evidence`) is rendered as a
-table under `/audits/<cycle>`. A statement has a review state in
-`soa.status`: `draft`, `in_review` or `approved` (with `approved_date`).
-**Only an approved statement is published**; every other state, including a
-missing or unrecognized one, is internal. The private site shows all
-statements, marking unapproved ones with a banner; the public site shows only
-approved ones, drops the Audits navbar entry when there are none, and removes
-pages published by an earlier render when a statement goes back to draft. The
-evidence column, which points into the repository, is private only.
-`grc validate` checks every statement.
+(`implemented`/`partial`/`gap`/`not_applicable`), `justification`, `evidence`),
+rendered as a table. `soa.status` is `draft`, `in_review` or `approved` (with
+`approved_date`); **an audit's statement is published only once approved**.
+Statements of assessments are never public.
+
+**Result** (`result.yaml`):
+
+```yaml
+result:
+  status: issued        # planned | pre_audit | in_audit | issued | not_issued | withdrawn
+  scheme: ISO/IEC 27001:2022
+  body: Certification Body AB
+  certificate_id: CERT-123
+  scope: Development process
+  issued: "2026-11-01"
+  valid_until: "2029-10-31"
+  documents:
+    - {title: Certificate (PDF), file: references/certificate.pdf}
+    - {title: Auditor report, url: "https://example.org/report"}
+```
+
+**A result is published only when `status: issued`**; any other state,
+including a missing or unknown one, is internal. Documents given as `file`
+(pdf, png, jpg, svg, txt, inside the audit directory, no symlinks out of it)
+are copied to `static/grc-audits/<cycle>/`; `url` documents (https) are linked.
+
+The public site shows, for each audit, only its issued result and approved
+statement, never findings, pre-audit links or assessments. The private site
+shows everything, marks unpublished parts with a banner, and lists assessments
+under *Audits > Internal assessments*. Pages and documents from an earlier
+render are removed when nothing is publishable any more. The evidence column
+of a statement points into the repository and is private only.
+`grc validate` checks statements, results (including document paths),
+`pre_audit` links and `catalogs`.
 
 ### Status derivation
 

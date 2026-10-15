@@ -2,58 +2,10 @@ package render
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 
-	"github.com/sirosfoundation/go-grc/pkg/config"
 	"github.com/sirosfoundation/go-grc/pkg/soa"
 )
-
-// generateSoAs renders one page per Statement of Applicability, plus an
-// index, under audits/. Statements are part of a real audit and are public;
-// the evidence column points into the (possibly private) repository, so it
-// is shown on the private profile only.
-func generateSoAs(cfg *config.Config, soas []*soa.Loaded, isPublic bool) error {
-	seen := map[string]string{}
-	for _, s := range soas {
-		slug := cycleSlug(s.Cycle)
-		if slug == "" || slug == "index" {
-			return fmt.Errorf("audit cycle %q has no usable page name", s.Cycle)
-		}
-		if other, ok := seen[slug]; ok {
-			return fmt.Errorf("audit cycles %q and %q map to the same page %q", other, s.Cycle, slug)
-		}
-		seen[slug] = s.Cycle
-	}
-	dir := filepath.Join(cfg.SiteDir, "audits")
-	if err := writePage(filepath.Join(dir, "_category_.json"), categoryJSON("Audits", 4)); err != nil {
-		return err
-	}
-	if err := writePage(filepath.Join(dir, "index.md"), renderSoAIndex(soas)); err != nil {
-		return err
-	}
-	for _, s := range soas {
-		if err := writePage(filepath.Join(dir, cycleSlug(s.Cycle)+".md"), renderSoAPage(s, isPublic)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func renderSoAIndex(soas []*soa.Loaded) string {
-	var b strings.Builder
-	b.WriteString("---\ntitle: \"Audits\"\nsidebar_label: \"Overview\"\nsidebar_position: 0\n---\n\n# Audits\n\n")
-	b.WriteString("Statements of Applicability for audit cycles.\n\n| Statement | Status | Version | Date |\n|---|---|---|---|\n")
-	for _, s := range soas {
-		h := s.SoA.Header
-		title := h.Title
-		if title == "" {
-			title = h.ID
-		}
-		fmt.Fprintf(&b, "| [%s](/audits/%s) | %s | %s | %s |\n", cell(title), cycleSlug(s.Cycle), stateLabel(s.SoA.State()), cell(h.Version), cell(h.Date))
-	}
-	return b.String()
-}
 
 func renderSoAPage(s *soa.Loaded, isPublic bool) string {
 	h := s.SoA.Header
@@ -64,7 +16,10 @@ func renderSoAPage(s *soa.Loaded, isPublic bool) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "---\ntitle: %q\nsidebar_label: %q\n---\n\n# %s\n\n", title, h.ID, title)
 
-	if !s.SoA.Published() {
+	switch {
+	case s.Kind == soa.KindAssessment:
+		b.WriteString(":::caution Internal assessment\nThis statement belongs to an internal assessment. It is never published on the public site.\n:::\n\n")
+	case !s.SoA.Published():
 		fmt.Fprintf(&b, ":::caution %s\nThis statement has not been through its review and is internal. It is not published on the public site.\n:::\n\n", stateLabel(s.SoA.State()))
 	}
 	b.WriteString("| | |\n|---|---|\n")
@@ -132,21 +87,6 @@ func stateLabel(state string) string {
 	default:
 		return "Draft"
 	}
-}
-
-// publishable returns the statements that may appear on the given profile:
-// every statement on the private site, only approved ones on the public site.
-func publishable(soas []*soa.Loaded, isPublic bool) []*soa.Loaded {
-	if !isPublic {
-		return soas
-	}
-	var out []*soa.Loaded
-	for _, s := range soas {
-		if s.SoA.Published() {
-			out = append(out, s)
-		}
-	}
-	return out
 }
 
 // cell makes s safe inside a Markdown (MDX) table cell.

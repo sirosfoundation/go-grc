@@ -106,7 +106,7 @@ func run(root, repo string, dryRun bool) error {
 
 	for fi := range audits.Files {
 		file := &audits.Files[fi]
-		auditID := file.Data.Audit.ID
+		auditID := file.Data.Meta().ID
 		created := 0
 		for i := range file.Data.Findings {
 			f := &file.Data.Findings[i]
@@ -124,7 +124,7 @@ func run(root, repo string, dryRun bool) error {
 				}
 			}
 			title := fmt.Sprintf("[%s] %s", f.ID, f.Title)
-			body := buildIssueBody(f, &file.Data.Audit)
+			body := buildIssueBody(f, file.Data.Meta())
 
 			if dryRun {
 				fmt.Printf("  DRY RUN: would create issue for %s\n", f.ID)
