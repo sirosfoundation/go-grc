@@ -41,3 +41,21 @@ func LastChange(ctx context.Context, path string) *Change {
 	}
 	return &Change{SHA: sha, Time: t.UTC()}
 }
+
+// Revisions counts the commits that changed the file, following renames.
+// It is 0 when that cannot be told reliably (see LastChange).
+func Revisions(ctx context.Context, path string) int {
+	dir := filepath.Dir(path)
+	git := func(args ...string) (string, bool) {
+		out, err := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...).Output()
+		return strings.TrimSpace(string(out)), err == nil
+	}
+	if shallow, ok := git("rev-parse", "--is-shallow-repository"); !ok || shallow != "false" {
+		return 0
+	}
+	out, ok := git("log", "--follow", "--format=%H", "--", filepath.Base(path))
+	if !ok || out == "" {
+		return 0
+	}
+	return len(strings.Split(out, "\n"))
+}

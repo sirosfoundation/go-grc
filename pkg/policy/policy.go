@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,7 +38,12 @@ type Policy struct {
 	Title        string
 	Visibility   string
 	Status       string
-	ApprovedDate string
+	ApprovedDate string         // the date of approval, which is the publication date
+	DocID        string         // document_id: the ISMS document identifier, e.g. SID-POL-SDLC
+	Owner        string         // owner: a role, never a person
+	Approver     string         // approver: a role, never a person
+	ReviewCycle  string         // review_cycle: "annual", "6 months", ...
+	Version      string         // version: set when the document is approved; drafts have revisions instead
 	Meta         map[string]any // remaining front matter, passed through to the site
 	Body         string         // Markdown after the front matter
 }
@@ -104,6 +110,13 @@ func parse(path string) (*Policy, error) {
 	}
 	p.Visibility = take("visibility")
 	p.Status = take("status")
+	// "id" is reserved by Docusaurus for the page slug, hence document_id.
+	p.DocID = take("document_id")
+	p.Owner = take("owner")
+	p.Approver = take("approver")
+	p.ReviewCycle = take("review_cycle")
+	p.Version = fmtDate(p.Meta["version"])
+	delete(p.Meta, "version")
 	p.ApprovedDate = fmtDate(p.Meta["approved_date"])
 	delete(p.Meta, "approved_date")
 	p.Title, _ = p.Meta["title"].(string)
@@ -150,5 +163,73 @@ func (p *Policy) Validate() []string {
 	if p.Status == StatusApproved && p.ApprovedDate == "" {
 		problems = append(problems, "status is approved but approved_date is empty")
 	}
+	if p.ApprovedDate != "" {
+		if _, err := time.Parse("2006-01-02", p.ApprovedDate); err != nil {
+			problems = append(problems, fmt.Sprintf("approved_date %q is not a date (want YYYY-MM-DD)", p.ApprovedDate))
+		}
+	}
+	if p.ReviewCycle != "" {
+		if _, ok := ParseReviewCycle(p.ReviewCycle); !ok {
+			problems = append(problems, fmt.Sprintf("review_cycle %q is not understood (want annual, quarterly, \"N months\" or \"N years\")", p.ReviewCycle))
+		}
+	}
 	return problems
+}
+
+// Warnings returns what should be filled in but does not stop the build:
+// the identifying metadata that the document card and the document register
+// are generated from.
+func (p *Policy) Warnings() []string {
+	var out []string
+	for _, f := range []struct{ name, val string }{
+		{"document_id", p.DocID}, {"owner", p.Owner}, {"approver", p.Approver}, {"review_cycle", p.ReviewCycle},
+	} {
+		if f.val == "" {
+			out = append(out, f.name+" is not set")
+		}
+	}
+	if p.Status == StatusApproved && p.Version == "" {
+		out = append(out, "status is approved but version is empty")
+	}
+	return out
+}
+
+var reCycle = regexp.MustCompile(`^(\d+)\s*(month|months|year|years)$`)
+
+// ParseReviewCycle returns the review interval in months.
+func ParseReviewCycle(s string) (int, bool) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	switch s {
+	case "annual", "annually", "yearly":
+		return 12, true
+	case "semi-annual", "semiannual", "biannual":
+		return 6, true
+	case "quarterly":
+		return 3, true
+	}
+	if m := reCycle.FindStringSubmatch(s); m != nil {
+		n, err := strconv.Atoi(m[1])
+		if err != nil || n <= 0 {
+			return 0, false
+		}
+		if strings.HasPrefix(m[2], "year") {
+			n *= 12
+		}
+		return n, true
+	}
+	return 0, false
+}
+
+// NextReview is the approval date plus the review cycle. It is unknown until
+// the document has both.
+func (p *Policy) NextReview() (time.Time, bool) {
+	months, ok := ParseReviewCycle(p.ReviewCycle)
+	if !ok {
+		return time.Time{}, false
+	}
+	d, err := time.Parse("2006-01-02", p.ApprovedDate)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return d.AddDate(0, months, 0), true
 }
