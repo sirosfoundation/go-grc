@@ -12,6 +12,7 @@ import (
 	"github.com/sirosfoundation/go-grc/pkg/catalog"
 	"github.com/sirosfoundation/go-grc/pkg/config"
 	"github.com/sirosfoundation/go-grc/pkg/mapping"
+	"github.com/sirosfoundation/go-grc/pkg/policy"
 	"github.com/sirosfoundation/go-grc/pkg/risk"
 	"github.com/sirosfoundation/go-grc/pkg/soa"
 )
@@ -126,6 +127,17 @@ func run(root string) error {
 	for _, s := range soas {
 		for _, p := range s.SoA.Validate() {
 			add(fmt.Sprintf("soa %s: %s", s.Cycle, p))
+		}
+	}
+
+	// Validate policies: each needs an explicit visibility claim and status
+	pols, err := policy.Load(cfg.PoliciesDir)
+	if err != nil {
+		return fmt.Errorf("loading policies: %w", err)
+	}
+	for _, pol := range pols {
+		for _, p := range pol.Validate() {
+			add(fmt.Sprintf("policy %s: %s", pol.Slug, p))
 		}
 	}
 
