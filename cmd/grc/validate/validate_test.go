@@ -133,7 +133,7 @@ risks:
     description: "d"
   - id: RSK-ORG
     profiles: [ghost]
-    title: "Organisation-wide risk, not from a finding"
+    title: "Organization-wide risk, not from a finding"
     status: draft
     description: "d"
 `
