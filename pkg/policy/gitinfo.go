@@ -58,6 +58,9 @@ func Revisions(ctx context.Context, path string) int {
 	if shallow, ok := git("rev-parse", "--is-shallow-repository"); !ok || shallow != "false" {
 		return 0
 	}
+	if _, ok := git("ls-files", "--error-unmatch", "--", filepath.Base(path)); !ok {
+		return 0
+	}
 	out, ok := git("log", "--follow", "--format=%H", "--", filepath.Base(path))
 	if !ok || out == "" {
 		return 0
