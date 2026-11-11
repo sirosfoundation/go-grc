@@ -48,6 +48,19 @@ func TestLastChange(t *testing.T) {
 		t.Error("an untracked file has no last change")
 	}
 
+	// A file that was committed and is no longer tracked keeps its history in
+	// `git log`, but has no current last change.
+	gitRun(t, dir, "rm", "-q", "--cached", "b.md")
+	if LastChange(context.Background(), b) != nil {
+		t.Error("a previously tracked, now untracked file has no last change")
+	}
+	gitRun(t, dir, "rm", "-q", "-f", "a.md")
+	_ = os.WriteFile(a, []byte("recreated"), 0o644)
+	if LastChange(context.Background(), a) != nil {
+		t.Error("a file recreated after a committed deletion must not take the deletion commit")
+	}
+	gitRun(t, dir, "add", "b.md")
+
 	// A shallow clone would report the newest commit for every file; refuse.
 	shallow := filepath.Join(t.TempDir(), "s")
 	if out, err := exec.Command("git", "clone", "-q", "--depth", "1", "file://"+dir, shallow).CombinedOutput(); err != nil {

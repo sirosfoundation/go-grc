@@ -27,6 +27,11 @@ func LastChange(ctx context.Context, path string) *Change {
 	if shallow, ok := git("rev-parse", "--is-shallow-repository"); !ok || shallow != "false" {
 		return nil
 	}
+	// log also searches deleted and untracked-since paths; only a file that is
+	// in the index has a last change worth showing.
+	if _, ok := git("ls-files", "--error-unmatch", "--", filepath.Base(path)); !ok {
+		return nil
+	}
 	out, ok := git("log", "-1", "--format=%H %cI", "--", filepath.Base(path))
 	if !ok || out == "" {
 		return nil
