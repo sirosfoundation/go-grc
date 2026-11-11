@@ -185,7 +185,7 @@ func runValidate(root string) error {
 			if !risk.ValidStatuses[r.Status] {
 				problems = append(problems, fmt.Sprintf("risk %s: invalid status %q", r.ID, r.Status))
 			}
-			if _, ok := audits.FindingsByID[r.Finding]; !ok {
+			if _, ok := audits.FindingsByID[r.Finding]; r.Finding != "" && !ok {
 				problems = append(problems, fmt.Sprintf("risk %s: references unknown finding %q", r.ID, r.Finding))
 			}
 			for _, p := range r.DecisionProblems() {
