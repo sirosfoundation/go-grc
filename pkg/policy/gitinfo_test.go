@@ -78,3 +78,24 @@ func TestLastChangeOutsideGit(t *testing.T) {
 		t.Error("a file outside a git repository has no last change")
 	}
 }
+
+func TestRevisions(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	dir := t.TempDir()
+	gitRun(t, dir, "init", "-q")
+	a := filepath.Join(dir, "a.md")
+	_ = os.WriteFile(a, []byte("1"), 0o644)
+	gitRun(t, dir, "add", ".")
+	gitRun(t, dir, "commit", "-q", "-m", "one")
+	_ = os.WriteFile(a, []byte("2"), 0o644)
+	gitRun(t, dir, "commit", "-q", "-am", "two")
+	if got := Revisions(context.Background(), a); got != 2 {
+		t.Errorf("Revisions = %d, want 2", got)
+	}
+	gitRun(t, dir, "rm", "-q", "--cached", "a.md")
+	if got := Revisions(context.Background(), a); got != 0 {
+		t.Errorf("an untracked file has no revisions, got %d", got)
+	}
+}

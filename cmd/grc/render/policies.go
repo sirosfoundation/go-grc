@@ -3,9 +3,11 @@ package render
 import (
 	"context"
 	"fmt"
+	"html"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -34,8 +36,10 @@ func generatePolicies(cfg *config.Config, pols []*policy.Policy, isPublic bool) 
 		return err
 	}
 	changes := map[string]*policy.Change{}
+	revisions := map[string]int{}
 	for _, p := range pols {
 		changes[p.Slug] = policy.LastChange(context.Background(), p.Path)
+		revisions[p.Slug] = policy.Revisions(context.Background(), p.Path)
 	}
 	if err := writePage(filepath.Join(dir, "index.md"), renderPolicyIndex(pols, changes, cfg.Project.Repo, isPublic)); err != nil {
 		return err
@@ -46,7 +50,7 @@ func generatePolicies(cfg *config.Config, pols []*policy.Policy, isPublic bool) 
 			return fmt.Errorf("policy %s: slug %q collides with another page", p.Path, p.Slug)
 		}
 		seen[p.Slug] = true
-		page, err := renderPolicyPage(p, isPublic)
+		page, err := renderPolicyPage(p, changes[p.Slug], revisions[p.Slug], cfg.Project.Repo, isPublic, time.Now())
 		if err != nil {
 			return err
 		}
@@ -123,7 +127,7 @@ func visibilityLabel(p *policy.Policy) string {
 // reH1 matches the first top-level heading line.
 var reH1 = regexp.MustCompile(`(?m)^#\s+.*$`)
 
-func renderPolicyPage(p *policy.Policy, isPublic bool) (string, error) {
+func renderPolicyPage(p *policy.Policy, change *policy.Change, revisions int, repo string, isPublic bool, now time.Time) (string, error) {
 	meta := map[string]any{}
 	for k, v := range p.Meta {
 		meta[k] = v
@@ -138,10 +142,12 @@ func renderPolicyPage(p *policy.Policy, isPublic bool) (string, error) {
 	}
 	body := p.Body
 	widget := policyWidget(p, isPublic)
+	card := policyCard(p, change, revisions, repo, isPublic, now)
 	if loc := reH1.FindStringIndex(body); loc != nil {
-		body = body[:loc[1]] + "\n\n" + widget + body[loc[1]:]
+		// The card goes before the heading so that it floats beside it.
+		body = body[:loc[0]] + card + "\n" + body[loc[0]:loc[1]] + "\n\n" + widget + body[loc[1]:]
 	} else {
-		body = "# " + p.Title + "\n\n" + widget + "\n" + body
+		body = card + "\n# " + p.Title + "\n\n" + widget + "\n" + body
 	}
 	return "---\n" + string(fm) + "---\n" + body, nil
 }
@@ -161,4 +167,62 @@ func policyWidget(p *policy.Policy, isPublic bool) string {
 		line += " · **Visibility:** " + visibilityLabel(p)
 	}
 	return fmt.Sprintf(":::%s Policy status\n%s\n:::\n", kind, line)
+}
+
+// policyCard is the document metadata box shown at the top right of a policy,
+// generated from front matter and git so that it cannot disagree with them.
+// The public profile shows only the owner role, the version and the
+// publication date.
+func policyCard(p *policy.Policy, c *policy.Change, revisions int, repo string, isPublic bool, now time.Time) string {
+	var rows [][2]string
+	add := func(k, v string) {
+		if v != "" {
+			rows = append(rows, [2]string{k, v})
+		}
+	}
+	esc := html.EscapeString
+	version := esc(p.Version)
+	if isPublic {
+		add("Owner", esc(p.Owner))
+		add("Version", version)
+		add("Published", esc(p.ApprovedDate))
+	} else {
+		add("Document ID", esc(p.DocID))
+		if version == "" {
+			version = "Draft"
+			if revisions > 0 {
+				version += fmt.Sprintf(" · revision %d", revisions)
+			}
+		}
+		add("Version", version)
+		add("Owner", esc(p.Owner))
+		add("Approver", esc(p.Approver))
+		add("Approved", esc(p.ApprovedDate))
+		add("Review cycle", esc(p.ReviewCycle))
+		if next, ok := p.NextReview(); ok {
+			label := next.Format("2006-01-02")
+			if now.After(next) {
+				label += " (overdue)"
+			}
+			add("Next review", label)
+		}
+		if c != nil {
+			stamp := c.Time.Format("2006-01-02 15:04") + " UTC"
+			if repo != "" {
+				add("Last change", fmt.Sprintf(`<a href="https://github.com/%s/commit/%s">%s</a>`, esc(repo), esc(c.SHA), stamp))
+			} else {
+				add("Last change", stamp)
+			}
+		}
+	}
+	if len(rows) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("<aside class=\"doc-card\">\n<dl>\n")
+	for _, r := range rows {
+		fmt.Fprintf(&b, "<dt>%s</dt><dd>%s</dd>\n", r[0], r[1])
+	}
+	b.WriteString("</dl>\n</aside>\n")
+	return b.String()
 }
