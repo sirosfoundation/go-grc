@@ -131,6 +131,11 @@ risks:
     title: "Broken risk"
     status: bogus
     description: "d"
+  - id: RSK-ORG
+    profiles: [ghost]
+    title: "Organisation-wide risk, not from a finding"
+    status: draft
+    description: "d"
 `
 	if err := os.WriteFile(filepath.Join(root, "risk-register", "platform.yaml"), []byte(riskYAML), 0o644); err != nil {
 		t.Fatal(err)
@@ -208,6 +213,9 @@ func TestValidateReportsEveryProblemKind(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q", want)
 		}
+	}
+	if strings.Contains(out, "RSK-ORG: references unknown finding") {
+		t.Errorf("a risk without a finding must be accepted:\n%s", out)
 	}
 	if !strings.Contains(out, "Validation found") || strings.Contains(out, "Validation passed") {
 		t.Errorf("unexpected summary:\n%s", out)

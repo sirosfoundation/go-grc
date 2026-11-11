@@ -74,7 +74,7 @@ type Decision struct {
 // monitoring, or a draft proposal awaiting a treatment decision).
 type Risk struct {
 	ID                   string           `yaml:"id"`
-	Finding              string           `yaml:"finding"`            // finding ID
+	Finding              string           `yaml:"finding"`            // finding ID; empty for a risk not stemming from a finding
 	Profiles             []string         `yaml:"profiles,omitempty"` // empty = all profiles
 	Title                string           `yaml:"title"`
 	Owner                string           `yaml:"owner"`                         // person or role accountable for the risk (required)
@@ -155,7 +155,9 @@ func Load(riskDir string, files []string) (*RiskSet, error) {
 				return nil, fmt.Errorf("duplicate risk ID: %s in %s", r.ID, name)
 			}
 			set.RisksByID[r.ID] = ref
-			set.RisksByFinding[r.Finding] = append(set.RisksByFinding[r.Finding], ref)
+			if r.Finding != "" {
+				set.RisksByFinding[r.Finding] = append(set.RisksByFinding[r.Finding], ref)
+			}
 		}
 	}
 
