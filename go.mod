@@ -1,6 +1,6 @@
 module github.com/sirosfoundation/go-grc
 
-go 1.26.9
+go 1.26.11
 
 require (
 	github.com/arran4/golang-ical v0.3.7
