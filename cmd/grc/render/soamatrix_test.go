@@ -78,6 +78,7 @@ func matrixFindings() []*audit.Finding {
 		{ID: "F-1", Title: "Gap", Severity: "high", Status: "open", AnnexA: []string{"A.5.2"}, TrackingIssue: &audit.IssueRef{Repo: "o/r", Number: 7}},
 		{ID: "F-2", Title: "Mentions A.8.1 in text", Severity: "low", Status: "open"},
 		{ID: "F-3", Title: "Control based", Status: "open", Controls: []string{"SID-X-1"}},
+		{ID: "F-4", Title: "Closed", Status: "resolved", AnnexA: []string{"A.5.1"}, TrackingIssue: &audit.IssueRef{Repo: "o/r", Number: 9}},
 	}
 }
 
@@ -126,7 +127,7 @@ func TestRenderSoAMatrixPage(t *testing.T) {
 		{"single scope", false, []string{
 			"## Summary", "5 Organizational controls", "7 Physical controls", "8 Technological controls",
 			`href="#r-a_5_1"`, `title="A.5.1 Policies &lt;x&gt; — Implemented"`, `class="soa-cell soa-gap"`,
-			"border:2px dashed", "[`policies/p.md`](/policies/p)", "[F-1](/findings/f_1)", "[#7](https://github.com/o/r/issues/7)",
+			"border:2px dashed", "[`policies/p.md`](/policies/p)", "[F-1](/findings/f_1)", "[#7](https://github.com/o/r/issues/7)", "[#9](https://github.com/o/r/issues/9)",
 			"⚠ ◐ Partial", "<summary>Not applicable requirements (1)</summary>", `<a id="r-a_7_1"></a>`,
 			"Applicable requirements (3)", "[plain statement table](/audits/x/soa)",
 		}, []string{"Broader scope", "▲"}},

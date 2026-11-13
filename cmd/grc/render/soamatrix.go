@@ -296,7 +296,7 @@ func findingCell(fs []*audit.Finding) string {
 	parts := make([]string, 0, len(fs))
 	for _, f := range fs {
 		s := fmt.Sprintf("%s %s", sevIcon(f.Severity), findingRef(f))
-		if f.TrackingIssue != nil && findingHasPage(f) {
+		if f.TrackingIssue != nil {
 			s += " " + issueRef(f)
 		}
 		if f.Status != "" {
