@@ -145,6 +145,16 @@ rendered as a table. `soa.status` is `draft`, `in_review` or `approved` (with
 `approved_date`); **an audit's statement is published only once approved**.
 Statements of assessments are never public.
 
+On the **private** profile every audit and assessment also gets a matrix page
+(`soa-matrix`): requirements grouped by ISO 27001 Annex A theme, by the row's
+optional `section`, or by the catalog's own section (an assessment without a
+`soa.yaml` is derived from its `catalogs`), one colored cell per requirement,
+and a list of applicable requirements with links to evidence, findings and
+their tracking issues. A requirement may carry an optional
+`broader_scope: {applicable, status, delta, note}` (`delta`: `none`, `new-gap`,
+`scope-widens`, `new-evidence-needed`, `inherited-from-supplier`); when any row
+has it the page adds a second, broader-scope matrix.
+
 **Result** (`result.yaml`):
 
 ```yaml

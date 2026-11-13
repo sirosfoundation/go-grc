@@ -202,6 +202,10 @@ func Run(root, profile string) error {
 	_ = os.RemoveAll(filepath.Join(filepath.Dir(origSiteDir), "static", staticAuditsDir))
 	// Audits: results, statements of applicability, internal assessments
 	if hasAudits {
+		if !isPublic {
+			attachMatrices(auditViews, assessmentViews, cfg.Frameworks, maps, fwCats)
+			matrixRepo = cfg.Project.Repo
+		}
 		if err := generateAudits(cfg, auditViews, assessmentViews, isPublic); err != nil {
 			cfg.SiteDir = origSiteDir
 			return err

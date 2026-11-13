@@ -58,12 +58,54 @@ type Header struct {
 
 // Requirement is one row of the statement.
 type Requirement struct {
-	AnnexA        string        `yaml:"annex_a"`
-	Title         string        `yaml:"title"`
+	AnnexA string `yaml:"annex_a"`
+	Title  string `yaml:"title"`
+	// Section optionally groups the requirement on the matrix page. Absent,
+	// ISO 27001 Annex A ids are grouped by theme and anything else is listed
+	// ungrouped.
+	Section       string        `yaml:"section,omitempty"`
 	Applicable    Applicability `yaml:"applicable"`
 	Status        string        `yaml:"status"`
 	Justification string        `yaml:"justification"`
 	Evidence      []string      `yaml:"evidence,omitempty"`
+	// BroaderScope is an optional second assessment of the same control
+	// against a wider scope (for example including the deployment platform),
+	// shown side by side with the main one. Absent for most statements.
+	BroaderScope *BroaderScope `yaml:"broader_scope,omitempty"`
+}
+
+// BroaderScope is the optional assessment of a control against a broader
+// scope. Every field is optional.
+type BroaderScope struct {
+	Applicable Applicability `yaml:"applicable,omitempty"`
+	Status     string        `yaml:"status,omitempty"`
+	// Delta says how the broader scope differs from the main one.
+	Delta string `yaml:"delta,omitempty"`
+	Note  string `yaml:"note,omitempty"`
+}
+
+// Deltas a broader scope may declare.
+const (
+	DeltaNone              = "none"
+	DeltaNewGap            = "new-gap"
+	DeltaScopeWidens       = "scope-widens"
+	DeltaNewEvidenceNeeded = "new-evidence-needed"
+	DeltaInheritedSupplier = "inherited-from-supplier"
+)
+
+var validDelta = map[string]bool{
+	DeltaNone: true, DeltaNewGap: true, DeltaScopeWidens: true,
+	DeltaNewEvidenceNeeded: true, DeltaInheritedSupplier: true,
+}
+
+// HasBroaderScope reports whether any requirement carries a broader scope.
+func (s *SoA) HasBroaderScope() bool {
+	for _, r := range s.Requirements {
+		if r.BroaderScope != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // SoA is a Statement of Applicability.
@@ -196,6 +238,26 @@ func (s *SoA) Validate() []string {
 		if r.Justification == "" {
 			problems = append(problems, fmt.Sprintf("%s: no justification", r.AnnexA))
 		}
+		if b := r.BroaderScope; b != nil {
+			problems = append(problems, b.validate(r.AnnexA)...)
+		}
+	}
+	return problems
+}
+
+// validate reports bad values only; every field may be absent.
+func (b *BroaderScope) validate(id string) []string {
+	var problems []string
+	switch b.Applicable {
+	case "", Applicable, NotApplicable, Partial:
+	default:
+		problems = append(problems, fmt.Sprintf("%s: broader_scope.applicable is %q, want true, false or partial", id, b.Applicable))
+	}
+	if b.Status != "" && !validStatus[b.Status] {
+		problems = append(problems, fmt.Sprintf("%s: broader_scope.status is %q, want implemented, partial, gap or not_applicable", id, b.Status))
+	}
+	if b.Delta != "" && !validDelta[b.Delta] {
+		problems = append(problems, fmt.Sprintf("%s: broader_scope.delta is %q, want none, new-gap, scope-widens, new-evidence-needed or inherited-from-supplier", id, b.Delta))
 	}
 	return problems
 }

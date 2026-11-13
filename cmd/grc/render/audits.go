@@ -28,6 +28,8 @@ type auditView struct {
 	Title  string
 	SoA    *soa.Loaded
 	Result *result.Loaded
+	// Matrix is the requirement model of the SoA matrix page (private only).
+	Matrix []matrixReq
 	// Findings are the audit's findings. Set on the private profile only:
 	// findings never appear on the public site.
 	Findings []*audit.Finding
@@ -41,6 +43,9 @@ type assessmentView struct {
 	Catalogs []string
 	Findings []*audit.Finding
 	SoA      *soa.Loaded
+	// Matrix is the requirement model of the SoA matrix page: the explicit
+	// soa.yaml when there is one, else derived from the catalogs.
+	Matrix []matrixReq
 }
 
 // collectAudits decides what each profile may show.
@@ -168,6 +173,11 @@ func generateAudits(cfg *config.Config, audits []*auditView, assessments []*asse
 			if err := writePage(filepath.Join(dir, v.Slug, "soa.md"), renderSoAPage(v.SoA, isPublic)); err != nil {
 				return err
 			}
+			if !isPublic {
+				if err := writePage(filepath.Join(dir, v.Slug, "soa-matrix.md"), renderSoAMatrixPage(matrixPage{Title: soaTitle(v.SoA), State: stateLabel(v.SoA.SoA.State()), Reqs: v.Matrix, Findings: v.Findings, Repo: matrixRepo, SoAPath: "/audits/" + v.Slug + "/soa"})); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	if len(assessments) == 0 {
@@ -194,6 +204,15 @@ func generateAudits(cfg *config.Config, audits []*auditView, assessments []*asse
 		}
 		if v.SoA != nil {
 			if err := writePage(filepath.Join(adir, v.Slug, "soa.md"), renderSoAPage(v.SoA, false)); err != nil {
+				return err
+			}
+		}
+		if len(v.Matrix) > 0 {
+			mp := matrixPage{Title: v.Title, State: "Derived from catalogs", Reqs: v.Matrix, Findings: v.Findings, Repo: matrixRepo, Implicit: v.SoA == nil}
+			if v.SoA != nil {
+				mp.Title, mp.State, mp.SoAPath = soaTitle(v.SoA), stateLabel(v.SoA.SoA.State()), "/audits/assessments/"+v.Slug+"/soa"
+			}
+			if err := writePage(filepath.Join(adir, v.Slug, "soa-matrix.md"), renderSoAMatrixPage(mp)); err != nil {
 				return err
 			}
 		}
@@ -329,6 +348,9 @@ func renderAuditPage(v *auditView, docs []docLink, isPublic bool) string {
 	}
 	if v.SoA != nil {
 		fmt.Fprintf(&b, "## Statement of applicability\n\n[%s](/audits/%s/soa) · %s\n\n", cell(soaTitle(v.SoA)), v.Slug, stateLabel(v.SoA.SoA.State()))
+		if !isPublic {
+			fmt.Fprintf(&b, "[Matrix view](/audits/%s/soa-matrix)\n\n", v.Slug)
+		}
 	}
 	if !isPublic {
 		b.WriteString(renderFindingsSection(v.Findings))
@@ -367,6 +389,9 @@ func renderAssessmentPage(v *assessmentView) string {
 	}
 	if v.SoA != nil {
 		fmt.Fprintf(&b, "## Statement of applicability\n\n[%s](/audits/assessments/%s/soa) · %s\n\n", cell(soaTitle(v.SoA)), v.Slug, stateLabel(v.SoA.SoA.State()))
+	}
+	if len(v.Matrix) > 0 {
+		fmt.Fprintf(&b, "[Statement of applicability matrix](/audits/assessments/%s/soa-matrix)\n\n", v.Slug)
 	}
 	b.WriteString(renderFindingsSection(v.Findings))
 	return b.String()

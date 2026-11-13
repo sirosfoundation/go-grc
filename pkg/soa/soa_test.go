@@ -129,3 +129,59 @@ func TestValidateAcceptsNotApplicableStatus(t *testing.T) {
 		t.Errorf("not_applicable status rejected: %v", p)
 	}
 }
+
+func TestValidateBroaderScope(t *testing.T) {
+	cases := []struct {
+		name string
+		b    *soa.BroaderScope
+		want string // empty: no problem
+	}{
+		{"absent", nil, ""},
+		{"empty", &soa.BroaderScope{}, ""},
+		{"all valid", &soa.BroaderScope{Applicable: soa.Partial, Status: "gap", Delta: "new-gap", Note: "n"}, ""},
+		{"each delta ok", &soa.BroaderScope{Delta: "inherited-from-supplier"}, ""},
+		{"bad applicable", &soa.BroaderScope{Applicable: "maybe"}, `broader_scope.applicable is "maybe"`},
+		{"bad status", &soa.BroaderScope{Status: "done"}, `broader_scope.status is "done"`},
+		{"bad delta", &soa.BroaderScope{Delta: "worse"}, `broader_scope.delta is "worse"`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := soa.SoA{Header: soa.Header{ID: "S"}, Requirements: []soa.Requirement{
+				{AnnexA: "A.1", Applicable: soa.Applicable, Status: "gap", Justification: "j", BroaderScope: c.b},
+			}}
+			joined := strings.Join(s.Validate(), "\n")
+			if c.want == "" && joined != "" {
+				t.Errorf("unexpected problems: %s", joined)
+			}
+			if c.want != "" && !strings.Contains(joined, c.want) {
+				t.Errorf("want %q in %q", c.want, joined)
+			}
+		})
+	}
+}
+
+func TestBroaderScopeLoadsFromYAML(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, "c/soa.yaml", sample+`- annex_a: A.8.1
+  title: Endpoints
+  applicable: true
+  status: implemented
+  justification: j
+  broader_scope: {applicable: partial, status: gap, delta: new-gap, note: platform}
+`)
+	got, err := soa.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := got[0].SoA
+	if !s.HasBroaderScope() {
+		t.Fatal("HasBroaderScope = false")
+	}
+	bs := s.Requirements[3].BroaderScope
+	if bs == nil || bs.Applicable != soa.Partial || bs.Status != "gap" || bs.Delta != "new-gap" || bs.Note != "platform" {
+		t.Errorf("broader_scope = %+v", bs)
+	}
+	if s.Requirements[0].BroaderScope != nil {
+		t.Error("requirement without broader_scope got one")
+	}
+}
