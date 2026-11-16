@@ -202,6 +202,9 @@ func TestRenderSoAMatrixPlanColumns(t *testing.T) {
 	// No plan data anywhere: no extra columns.
 	if out := renderSoAMatrixPage(matrixPage{Title: "T", Reqs: matrixFromSoA(testSoA(false)), Repo: "o/r"}); strings.Contains(out, "Target date") {
 		t.Errorf("plan columns without plan data:\n%s", out)
+	}
+}
+
 func TestMatrixFromCatalogsEnumeratesCatalog(t *testing.T) {
 	fws := []config.FrameworkConfig{{ID: "fw", Name: "FW"}}
 	cat := &catalog.FrameworkCatalog{Requirements: []catalog.FrameworkRequirement{
