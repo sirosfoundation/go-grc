@@ -3,6 +3,7 @@ package render
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sirosfoundation/go-grc/pkg/audit"
 	"github.com/sirosfoundation/go-grc/pkg/soa"
@@ -164,5 +165,39 @@ func TestRenderSoAMatrixPageEmptyAndFlat(t *testing.T) {
 	out := renderSoAMatrixPage(matrixPage{Title: "T", Reqs: []matrixReq{{ID: "X-1", Title: "t", Anchor: "r-x_1", Applicable: soa.Applicable, Status: "gap"}}})
 	if !strings.Contains(out, "### Requirements") {
 		t.Errorf("ungrouped requirements not listed under a flat heading:\n%s", out)
+	}
+}
+
+func TestRenderSoAMatrixPlanColumns(t *testing.T) {
+	old := matrixToday
+	matrixToday = func() time.Time { return time.Date(2026, 12, 15, 10, 0, 0, 0, time.UTC) }
+	defer func() { matrixToday = old }()
+
+	s := testSoA(false)
+	// A.5.2 (gap): full plan, past date. A.8.1 (partial): a plan without a date.
+	s.Requirements[1].Activity, s.Requirements[1].Owner, s.Requirements[1].TargetDate, s.Requirements[1].Issue = "Define roles", "CISO", "2026-12-01", "o/r#5"
+	s.Requirements[3].Activity, s.Requirements[3].Owner = "Harden endpoints", "Tech Lead"
+	out := renderSoAMatrixPage(matrixPage{Title: "T", Reqs: matrixFromSoA(s), Repo: "o/r"})
+	for _, w := range []string{
+		"| Activity | Owner | Target date |",
+		"Define roles<br/>[o/r#5](https://github.com/o/r/issues/5) | CISO | ⏰ 2026-12-01 (overdue) |",
+		"Harden endpoints | Tech Lead | – |",
+	} {
+		if !strings.Contains(out, w) {
+			t.Errorf("missing %q in:\n%s", w, out)
+		}
+	}
+	// A future date is not marked; an implemented requirement shows empty cells.
+	s.Requirements[1].TargetDate = "2027-01-14"
+	out = renderSoAMatrixPage(matrixPage{Title: "T", Reqs: matrixFromSoA(s), Repo: "o/r"})
+	if strings.Contains(out, "overdue") || !strings.Contains(out, "| CISO | 2027-01-14 |") {
+		t.Errorf("future date mishandled:\n%s", out)
+	}
+	if !strings.Contains(out, "| ok | [`policies/p.md`](/policies/p) |  |  |  |  |") {
+		t.Errorf("implemented requirement should have empty plan cells:\n%s", out)
+	}
+	// No plan data anywhere: no extra columns.
+	if out := renderSoAMatrixPage(matrixPage{Title: "T", Reqs: matrixFromSoA(testSoA(false)), Repo: "o/r"}); strings.Contains(out, "Target date") {
+		t.Errorf("plan columns without plan data:\n%s", out)
 	}
 }

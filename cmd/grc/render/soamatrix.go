@@ -5,6 +5,7 @@ import (
 	"html"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/sirosfoundation/go-grc/pkg/audit"
 	"github.com/sirosfoundation/go-grc/pkg/catalog"
@@ -12,6 +13,9 @@ import (
 	"github.com/sirosfoundation/go-grc/pkg/mapping"
 	"github.com/sirosfoundation/go-grc/pkg/soa"
 )
+
+// matrixToday is the date a target date is compared with; tests replace it.
+var matrixToday = func() time.Time { return time.Now().UTC() }
 
 // matrixRepo is the project's GitHub repository (org/name), used to link
 // evidence files. Set for the private profile before the audit pages render.
@@ -36,6 +40,11 @@ type matrixReq struct {
 	FwID          string   // framework id (catalog-derived only)
 	URL           string   // requirement page, when one exists
 	Broader       *soa.BroaderScope
+	Activity      string // plan for a partial or gap requirement (explicit statements only)
+	Owner         string
+	TargetDate    string
+	Issue         string // org/repo#number
+	NeedsPlan     bool
 }
 
 // matrixPage is everything the matrix page needs.
@@ -78,6 +87,7 @@ func matrixFromSoA(s *soa.SoA) []matrixReq {
 			ID: r.AnnexA, Title: r.Title, Group: groupOf(r.Section, r.AnnexA), Anchor: "r-" + entrySlug(r.AnnexA),
 			Applicable: r.Applicable, Status: r.Status, Justification: r.Justification,
 			Evidence: r.Evidence, Broader: r.BroaderScope,
+			Activity: r.Activity, Owner: r.Owner, TargetDate: r.TargetDate, Issue: r.Issue, NeedsPlan: r.NeedsPlan(),
 		})
 	}
 	return out
@@ -325,11 +335,14 @@ func renderSoAMatrixPage(p matrixPage) string {
 	// Group, keeping first-seen order.
 	var order []string
 	groups := map[string][]*matrixReq{}
-	broader := false
+	broader, plan := false, false
 	for i := range p.Reqs {
 		r := &p.Reqs[i]
 		if r.Broader != nil {
 			broader = true
+		}
+		if r.Activity != "" || r.Owner != "" || r.TargetDate != "" || r.Issue != "" {
+			plan = true
 		}
 		g := r.Group
 		if _, ok := groups[g]; !ok {
@@ -468,6 +481,10 @@ func renderSoAMatrixPage(p matrixPage) string {
 		fmt.Fprintf(&b, "### %s\n\n", cell(groupName(g)))
 		b.WriteString("| Requirement | Title | Applicable | Status | Notes | Evidence | Findings and issues |")
 		sep := "|---|---|---|---|---|---|---|"
+		if plan {
+			b.WriteString(" Activity | Owner | Target date |")
+			sep += "---|---|---|"
+		}
 		if broader {
 			b.WriteString(" Broader scope |")
 			sep += "---|"
@@ -484,6 +501,10 @@ func renderSoAMatrixPage(p matrixPage) string {
 				id = fmt.Sprintf("[%s](%s)", id, r.URL)
 			}
 			fmt.Fprintf(&b, "| <a id=%q></a>%s | %s | %s | %s | %s | %s | %s |", r.Anchor, id, cell(r.Title), cell(string(r.Applicable)), st, cell(r.Justification), evidenceCell(r, p.Repo), findingCell(findingsFor(r, p.Findings)))
+			if plan {
+				a, o, d := planCells(r)
+				fmt.Fprintf(&b, " %s | %s | %s |", a, o, d)
+			}
 			if broader {
 				fmt.Fprintf(&b, " %s |", broaderCell(r))
 			}
@@ -519,6 +540,33 @@ func evidenceCell(r *matrixReq, repo string) string {
 		parts = append(parts, controlLink(c))
 	}
 	return strings.Join(parts, "<br/>")
+}
+
+// planCells are the activity, owner and target date cells of a requirement.
+// A requirement that needs a plan and has none shows a dash; a target date in
+// the past is marked.
+func planCells(r *matrixReq) (activity, owner, date string) {
+	activity = cell(r.Activity)
+	if repo, n, ok := soa.ParseIssue(r.Issue); ok {
+		link := fmt.Sprintf("[%s#%d](https://github.com/%s/issues/%d)", repo, n, repo, n)
+		if activity != "" {
+			activity += "<br/>"
+		}
+		activity += link
+	}
+	owner = cell(r.Owner)
+	date = cell(r.TargetDate)
+	if t, ok := soa.ParseDate(r.TargetDate); ok && r.NeedsPlan && t.Before(matrixToday().Truncate(24*time.Hour)) {
+		date = "⏰ " + date + " (overdue)"
+	}
+	if r.NeedsPlan {
+		for _, c := range []*string{&activity, &owner, &date} {
+			if *c == "" {
+				*c = "–"
+			}
+		}
+	}
+	return
 }
 
 func broaderCell(r *matrixReq) string {
