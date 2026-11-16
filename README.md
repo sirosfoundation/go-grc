@@ -153,7 +153,9 @@ and a list of applicable requirements with links to evidence, findings and
 their tracking issues. A requirement may carry an optional
 `broader_scope: {applicable, status, delta, note}` (`delta`: `none`, `new-gap`,
 `scope-widens`, `new-evidence-needed`, `inherited-from-supplier`); when any row
-has it the page adds a second, broader-scope matrix.
+has it the page adds a second, broader-scope matrix. The page uses raw HTML
+with string `style` attributes, so the Docusaurus site must set
+`markdown.format: 'md'` (the compliance site does) and not parse it as MDX.
 
 **Result** (`result.yaml`):
 
