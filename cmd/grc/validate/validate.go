@@ -129,6 +129,9 @@ func run(root string) error {
 		for _, p := range s.SoA.Validate() {
 			add(fmt.Sprintf("soa %s %s: %s", s.Kind, s.Cycle, p))
 		}
+		for _, w := range s.SoA.Warnings() {
+			warnings = append(warnings, fmt.Sprintf("soa %s %s: %s", s.Kind, s.Cycle, w))
+		}
 	}
 
 	// Validate audit results (certificates)

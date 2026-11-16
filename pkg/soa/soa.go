@@ -9,7 +9,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
+	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -58,12 +62,149 @@ type Header struct {
 
 // Requirement is one row of the statement.
 type Requirement struct {
-	AnnexA        string        `yaml:"annex_a"`
-	Title         string        `yaml:"title"`
+	AnnexA string `yaml:"annex_a"`
+	Title  string `yaml:"title"`
+	// Section optionally groups the requirement on the matrix page. Absent,
+	// ISO 27001 Annex A ids are grouped by theme and anything else is listed
+	// ungrouped.
+	Section       string        `yaml:"section,omitempty"`
 	Applicable    Applicability `yaml:"applicable"`
 	Status        string        `yaml:"status"`
 	Justification string        `yaml:"justification"`
 	Evidence      []string      `yaml:"evidence,omitempty"`
+	// Activity, Owner, TargetDate and Issue are the plan for closing a
+	// requirement that is partial or a gap: what will be done, by whom (a
+	// role), by when (YYYY-MM-DD) and the tracking issue ("org/repo#n"). All
+	// are optional; see NeedsPlan and Warnings for when they are expected.
+	Activity   string `yaml:"activity,omitempty"`
+	Owner      string `yaml:"owner,omitempty"`
+	TargetDate string `yaml:"target_date,omitempty"`
+	Issue      string `yaml:"issue,omitempty"`
+	// BroaderScope is an optional second assessment of the same control
+	// against a wider scope (for example including the deployment platform),
+	// shown side by side with the main one. Absent for most statements.
+	BroaderScope *BroaderScope `yaml:"broader_scope,omitempty"`
+}
+
+// BroaderScope is the optional assessment of a control against a broader
+// scope. Every field is optional.
+type BroaderScope struct {
+	Applicable Applicability `yaml:"applicable,omitempty"`
+	Status     string        `yaml:"status,omitempty"`
+	// Delta says how the broader scope differs from the main one.
+	Delta string `yaml:"delta,omitempty"`
+	Note  string `yaml:"note,omitempty"`
+}
+
+// Deltas a broader scope may declare.
+const (
+	DeltaNone              = "none"
+	DeltaNewGap            = "new-gap"
+	DeltaScopeWidens       = "scope-widens"
+	DeltaNewEvidenceNeeded = "new-evidence-needed"
+	DeltaInheritedSupplier = "inherited-from-supplier"
+)
+
+var validDelta = map[string]bool{
+	DeltaNone: true, DeltaNewGap: true, DeltaScopeWidens: true,
+	DeltaNewEvidenceNeeded: true, DeltaInheritedSupplier: true,
+}
+
+// NeedsPlan reports whether the requirement applies and is not fully
+// implemented, so it is expected to carry an activity, an owner and a date.
+func (r Requirement) NeedsPlan() bool {
+	return r.Applicable != NotApplicable && (r.Status == "partial" || r.Status == "gap")
+}
+
+// HasPlan reports whether any requirement carries plan fields.
+func (s *SoA) HasPlan() bool {
+	for _, r := range s.Requirements {
+		if r.Activity != "" || r.Owner != "" || r.TargetDate != "" || r.Issue != "" {
+			return true
+		}
+	}
+	return false
+}
+
+var issueRe = regexp.MustCompile(`^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([0-9]+)$`)
+
+// ParseIssue splits "org/repo#n" into the repository and the number.
+func ParseIssue(s string) (repo string, number int, ok bool) {
+	m := issueRe.FindStringSubmatch(s)
+	if m == nil {
+		return "", 0, false
+	}
+	n, err := strconv.Atoi(m[2])
+	if err != nil || n <= 0 {
+		return "", 0, false
+	}
+	return m[1], n, true
+}
+
+// ParseDate parses a target date written YYYY-MM-DD.
+func ParseDate(s string) (time.Time, bool) {
+	t, err := time.Parse("2006-01-02", s)
+	return t, err == nil
+}
+
+// planRequired is true once the statement has left draft: the plan fields are
+// then errors when missing, and warnings while the statement is a draft.
+func (s *SoA) planRequired() bool {
+	return s.Header.Status == StatusInReview || s.Header.Status == StatusApproved
+}
+
+// planGaps lists, per requirement that needs a plan, which fields are missing.
+func (s *SoA) planGaps() []string {
+	var out []string
+	for _, r := range s.Requirements {
+		if !r.NeedsPlan() {
+			continue
+		}
+		var missing []string
+		if strings.TrimSpace(r.Activity) == "" {
+			missing = append(missing, "activity")
+		}
+		if strings.TrimSpace(r.Owner) == "" {
+			missing = append(missing, "owner")
+		}
+		if strings.TrimSpace(r.TargetDate) == "" {
+			missing = append(missing, "target_date")
+		}
+		if len(missing) > 0 {
+			out = append(out, fmt.Sprintf("%s: is %s and has no %s", r.AnnexA, r.Status, joinWords(missing)))
+		}
+	}
+	return out
+}
+
+func joinWords(w []string) string {
+	switch len(w) {
+	case 1:
+		return w[0]
+	case 2:
+		return w[0] + " or " + w[1]
+	}
+	return w[0] + ", " + w[1] + " or " + w[2]
+}
+
+// Warnings reports what is merely incomplete: while the statement is a draft,
+// the missing plan fields of partial and gap requirements. Once it is in
+// review or approved they are errors from Validate instead.
+func (s *SoA) Warnings() []string {
+	if s.planRequired() {
+		return nil
+	}
+	return s.planGaps()
+}
+
+// HasBroaderScope reports whether any requirement carries a broader scope.
+func (s *SoA) HasBroaderScope() bool {
+	for _, r := range s.Requirements {
+		if r.BroaderScope != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // SoA is a Statement of Applicability.
@@ -196,6 +337,39 @@ func (s *SoA) Validate() []string {
 		if r.Justification == "" {
 			problems = append(problems, fmt.Sprintf("%s: no justification", r.AnnexA))
 		}
+		if r.TargetDate != "" {
+			if _, ok := ParseDate(r.TargetDate); !ok {
+				problems = append(problems, fmt.Sprintf("%s: target_date is %q, want YYYY-MM-DD", r.AnnexA, r.TargetDate))
+			}
+		}
+		if r.Issue != "" {
+			if _, _, ok := ParseIssue(r.Issue); !ok {
+				problems = append(problems, fmt.Sprintf("%s: issue is %q, want org/repo#number", r.AnnexA, r.Issue))
+			}
+		}
+		if b := r.BroaderScope; b != nil {
+			problems = append(problems, b.validate(r.AnnexA)...)
+		}
+	}
+	if s.planRequired() {
+		problems = append(problems, s.planGaps()...)
+	}
+	return problems
+}
+
+// validate reports bad values only; every field may be absent.
+func (b *BroaderScope) validate(id string) []string {
+	var problems []string
+	switch b.Applicable {
+	case "", Applicable, NotApplicable, Partial:
+	default:
+		problems = append(problems, fmt.Sprintf("%s: broader_scope.applicable is %q, want true, false or partial", id, b.Applicable))
+	}
+	if b.Status != "" && !validStatus[b.Status] {
+		problems = append(problems, fmt.Sprintf("%s: broader_scope.status is %q, want implemented, partial, gap or not_applicable", id, b.Status))
+	}
+	if b.Delta != "" && !validDelta[b.Delta] {
+		problems = append(problems, fmt.Sprintf("%s: broader_scope.delta is %q, want none, new-gap, scope-widens, new-evidence-needed or inherited-from-supplier", id, b.Delta))
 	}
 	return problems
 }

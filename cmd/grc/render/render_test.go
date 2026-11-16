@@ -584,3 +584,31 @@ func TestRenderWithoutPoliciesDirLeavesHandCuratedPages(t *testing.T) {
 		t.Errorf("render deleted hand-curated policies though no policies dir exists: %v", err)
 	}
 }
+
+func TestRenderMatrixPrivateOnly(t *testing.T) {
+	// Approved, so even the public profile publishes the plain SoA page.
+	pages := []string{
+		filepath.Join("audits", "iso-2026", "soa-matrix.md"),
+		filepath.Join("audits", "assessments", "self", "soa-matrix.md"),
+	}
+	priv := renderFixture(t, "private", approved)
+	for _, p := range pages {
+		body, err := os.ReadFile(filepath.Join(priv, "site", "docs", p))
+		if err != nil {
+			t.Errorf("private render lacks %s: %v", p, err)
+			continue
+		}
+		if !strings.Contains(string(body), `class="soa-cell`) {
+			t.Errorf("%s has no matrix cells:\n%s", p, body)
+		}
+	}
+	pub := renderFixture(t, "public", approved)
+	if _, err := os.Stat(filepath.Join(pub, "site", "docs", "audits", "iso-2026", "soa.md")); err != nil {
+		t.Fatalf("public lost the approved SoA: %v", err)
+	}
+	for _, p := range pages {
+		if _, err := os.Stat(filepath.Join(pub, "site", "docs", p)); err == nil {
+			t.Errorf("public render emitted %s", p)
+		}
+	}
+}
