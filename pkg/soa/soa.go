@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"strconv"
 	"time"
 
@@ -160,13 +161,13 @@ func (s *SoA) planGaps() []string {
 			continue
 		}
 		var missing []string
-		if r.Activity == "" {
+		if strings.TrimSpace(r.Activity) == "" {
 			missing = append(missing, "activity")
 		}
-		if r.Owner == "" {
+		if strings.TrimSpace(r.Owner) == "" {
 			missing = append(missing, "owner")
 		}
-		if r.TargetDate == "" {
+		if strings.TrimSpace(r.TargetDate) == "" {
 			missing = append(missing, "target_date")
 		}
 		if len(missing) > 0 {

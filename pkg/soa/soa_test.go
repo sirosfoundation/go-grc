@@ -289,3 +289,12 @@ func TestPlanRequiredOnceInReview(t *testing.T) {
 		}
 	}
 }
+
+func TestWhitespaceOnlyPlanFieldsAreMissing(t *testing.T) {
+	s := soa.SoA{Header: soa.Header{ID: "S", Status: "approved", ApprovedDate: "2026-11-01"}, Requirements: []soa.Requirement{
+		{AnnexA: "A.1", Applicable: soa.Applicable, Status: "gap", Justification: "j", Activity: "  ", Owner: "\t", TargetDate: "2026-12-01"},
+	}}
+	if p := strings.Join(s.Validate(), "\n"); !strings.Contains(p, "A.1: is gap and has no activity or owner") {
+		t.Errorf("Validate() = %q", p)
+	}
+}
