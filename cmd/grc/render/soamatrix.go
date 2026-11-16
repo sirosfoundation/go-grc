@@ -36,8 +36,8 @@ type matrixReq struct {
 	Status        string
 	Justification string
 	Evidence      []string // repository paths, URLs or plain text
-	Controls      []string // catalog control ids (catalog-derived only)
-	FwID          string   // framework id (catalog-derived only)
+	Controls      []string // catalog control ids, from the framework mapping
+	FwID          string   // framework id, from the mapping or the catalog
 	URL           string   // requirement page, when one exists
 	Broader       *soa.BroaderScope
 	Activity      string // plan for a partial or gap requirement (explicit statements only)
@@ -120,19 +120,48 @@ func matrixFromCatalogs(catalogs []string, fws []config.FrameworkConfig, maps ma
 				fw = &fws[i]
 			}
 		}
-		fm := maps[id]
-		if fw == nil || fm == nil {
+		if fw == nil {
 			continue
 		}
-		for _, e := range fm.Entries {
+		mapped := map[string]mapping.MappingEntry{}
+		var mapOrder []string
+		if fm := maps[id]; fm != nil {
+			for _, e := range fm.Entries {
+				if _, dup := mapped[e.Key]; !dup {
+					mapOrder = append(mapOrder, e.Key)
+				}
+				mapped[e.Key] = e
+			}
+		}
+		// Every catalog requirement, then mapping entries the catalog lacks.
+		keys := make([]string, 0, len(mapOrder))
+		seen := map[string]bool{}
+		if c := fwCats[id]; c != nil {
+			for _, cr := range c.Requirements {
+				if !seen[cr.ID] {
+					seen[cr.ID] = true
+					keys = append(keys, cr.ID)
+				}
+			}
+		}
+		for _, k := range mapOrder {
+			if !seen[k] {
+				seen[k] = true
+				keys = append(keys, k)
+			}
+		}
+		for _, key := range keys {
+			e, ok := mapped[key]
 			r := matrixReq{
-				ID: e.Key, Title: e.Key, Anchor: "r-" + entrySlug(id+"_"+e.Key), FwID: id,
-				Applicable: soa.Applicable, Status: coverageToStatus(e.Status),
-				Justification: e.Notes, Controls: e.Controls,
+				ID: key, Title: key, Anchor: "r-" + entrySlug(id+"_"+key), FwID: id,
+				Applicable: soa.Applicable, Status: statusNotAssessed,
+			}
+			if ok {
+				r.Status, r.Justification, r.Controls = coverageToStatus(e.Status), e.Notes, e.Controls
 			}
 			section := ""
 			if c := fwCats[id]; c != nil {
-				if cr := c.ByID[e.Key]; cr != nil {
+				if cr := c.ByID[key]; cr != nil {
 					r.Title, section = cr.Title, cr.Section
 				}
 			}
@@ -140,7 +169,7 @@ func matrixFromCatalogs(catalogs []string, fws []config.FrameworkConfig, maps ma
 				r.Applicable = soa.NotApplicable
 			}
 			// Annex A ids group by theme; other catalogs by their own section.
-			if r.Group = groupOf("", e.Key); r.Group == "" {
+			if r.Group = groupOf("", key); r.Group == "" {
 				r.Group = section
 			}
 			if len(catalogs) > 1 {
@@ -148,7 +177,7 @@ func matrixFromCatalogs(catalogs []string, fws []config.FrameworkConfig, maps ma
 				r.Group = strings.TrimSuffix(r.Group, " /")
 			}
 			if urls := frameworkURLs[id]; urls != nil {
-				r.URL = urls[e.Key]
+				r.URL = urls[key]
 			}
 			out = append(out, r)
 		}
@@ -156,16 +185,60 @@ func matrixFromCatalogs(catalogs []string, fws []config.FrameworkConfig, maps ma
 	return out
 }
 
+// resolveExplicit gives the rows of an explicit statement the framework and the
+// mapped controls they correspond to, so that findings that reference them only
+// through those are found. Annex A ids resolve against iso27001, then against
+// the listed catalogs; a row found in none keeps matching by id and text.
+func resolveExplicit(reqs []matrixReq, catalogs []string, maps mapping.Mappings) {
+	for i := range reqs {
+		r := &reqs[i]
+		cands := append([]string(nil), catalogs...)
+		if annexARe.MatchString(r.ID) {
+			cands = append([]string{"iso27001"}, cands...)
+		}
+		for _, id := range cands {
+			fm := maps[id]
+			if fm == nil {
+				continue
+			}
+			for _, e := range fm.Entries {
+				if e.Key != r.ID {
+					continue
+				}
+				if r.FwID == "" {
+					r.FwID = id
+				}
+				for _, c := range e.Controls {
+					if !containsString(r.Controls, c) {
+						r.Controls = append(r.Controls, c)
+					}
+				}
+			}
+		}
+	}
+}
+
+func containsString(l []string, s string) bool {
+	for _, x := range l {
+		if x == s {
+			return true
+		}
+	}
+	return false
+}
+
 // attachMatrices fills in the matrix model of every audit and assessment.
 func attachMatrices(audits []*auditView, assessments []*assessmentView, fws []config.FrameworkConfig, maps mapping.Mappings, fwCats map[string]*catalog.FrameworkCatalog) {
 	for _, v := range audits {
 		if v.SoA != nil {
 			v.Matrix = matrixFromSoA(&v.SoA.SoA)
+			resolveExplicit(v.Matrix, nil, maps)
 		}
 	}
 	for _, v := range assessments {
 		if v.SoA != nil {
 			v.Matrix = matrixFromSoA(&v.SoA.SoA)
+			resolveExplicit(v.Matrix, v.Catalogs, maps)
 		} else {
 			v.Matrix = matrixFromCatalogs(v.Catalogs, fws, maps, fwCats)
 		}
@@ -175,6 +248,16 @@ func attachMatrices(audits []*auditView, assessments []*assessmentView, fws []co
 // notApplicable reports whether the requirement is out of scope.
 func (r *matrixReq) notApplicable() bool {
 	return r.Applicable == soa.NotApplicable || r.Status == "not_applicable"
+}
+
+// inAnyScope reports whether the requirement applies in the main scope or, if
+// it has one, the broader scope. Those are the ones that get a detailed row.
+func (r *matrixReq) inAnyScope() bool {
+	if !r.notApplicable() {
+		return true
+	}
+	b := r.Broader
+	return b != nil && b.Applicable != soa.NotApplicable && b.Applicable != "" && b.Status != "not_applicable"
 }
 
 // effective is the status the matrix shows: not applicable wins.
@@ -463,7 +546,7 @@ func renderSoAMatrixPage(p matrixPage) string {
 	// Applicable requirements.
 	nApplicable := 0
 	for i := range p.Reqs {
-		if !p.Reqs[i].notApplicable() {
+		if p.Reqs[i].inAnyScope() {
 			nApplicable++
 		}
 	}
@@ -471,7 +554,7 @@ func renderSoAMatrixPage(p matrixPage) string {
 	for _, g := range order {
 		var rs []*matrixReq
 		for _, r := range groups[g] {
-			if !r.notApplicable() {
+			if r.inAnyScope() {
 				rs = append(rs, r)
 			}
 		}
@@ -516,7 +599,7 @@ func renderSoAMatrixPage(p matrixPage) string {
 	// Not applicable requirements, collapsed.
 	var na []*matrixReq
 	for i := range p.Reqs {
-		if p.Reqs[i].notApplicable() {
+		if !p.Reqs[i].inAnyScope() {
 			na = append(na, &p.Reqs[i])
 		}
 	}

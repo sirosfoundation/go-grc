@@ -6,6 +6,9 @@ import (
 	"time"
 
 	"github.com/sirosfoundation/go-grc/pkg/audit"
+	"github.com/sirosfoundation/go-grc/pkg/catalog"
+	"github.com/sirosfoundation/go-grc/pkg/config"
+	"github.com/sirosfoundation/go-grc/pkg/mapping"
 	"github.com/sirosfoundation/go-grc/pkg/soa"
 )
 
@@ -199,5 +202,61 @@ func TestRenderSoAMatrixPlanColumns(t *testing.T) {
 	// No plan data anywhere: no extra columns.
 	if out := renderSoAMatrixPage(matrixPage{Title: "T", Reqs: matrixFromSoA(testSoA(false)), Repo: "o/r"}); strings.Contains(out, "Target date") {
 		t.Errorf("plan columns without plan data:\n%s", out)
+func TestMatrixFromCatalogsEnumeratesCatalog(t *testing.T) {
+	fws := []config.FrameworkConfig{{ID: "fw", Name: "FW"}}
+	cat := &catalog.FrameworkCatalog{Requirements: []catalog.FrameworkRequirement{
+		{ID: "R-1", Title: "One", Section: "S"}, {ID: "R-2", Title: "Two", Section: "S"},
+	}}
+	cat.ByID = map[string]*catalog.FrameworkRequirement{"R-1": &cat.Requirements[0], "R-2": &cat.Requirements[1]}
+	maps := mapping.Mappings{"fw": &mapping.FrameworkMapping{Entries: []mapping.MappingEntry{
+		{Key: "R-1", Status: "full", Controls: []string{"C-1"}}, {Key: "X-9", Status: "gap"},
+	}}}
+	got := matrixFromCatalogs([]string{"fw"}, fws, maps, map[string]*catalog.FrameworkCatalog{"fw": cat})
+	status := map[string]string{}
+	for _, r := range got {
+		status[r.ID] = r.Status
+	}
+	want := map[string]string{"R-1": "implemented", "R-2": statusNotAssessed, "X-9": "gap"}
+	if len(got) != 3 || status["R-1"] != want["R-1"] || status["R-2"] != want["R-2"] || status["X-9"] != want["X-9"] {
+		t.Errorf("rows = %v, want %v", status, want)
+	}
+	// No mapping at all: the catalog is still listed, all not assessed.
+	got = matrixFromCatalogs([]string{"fw"}, fws, mapping.Mappings{}, map[string]*catalog.FrameworkCatalog{"fw": cat})
+	if len(got) != 2 || got[0].Status != statusNotAssessed {
+		t.Errorf("unmapped catalog rows = %+v", got)
+	}
+}
+
+func TestResolveExplicitFindsFindingsThroughMappedControls(t *testing.T) {
+	maps := mapping.Mappings{"iso27001": &mapping.FrameworkMapping{Entries: []mapping.MappingEntry{
+		{Key: "A.8.9", Controls: []string{"SEC-AUTH-01"}},
+	}}}
+	reqs := []matrixReq{{ID: "A.8.9"}, {ID: "A.8.10"}}
+	f := []*audit.Finding{{ID: "F-1", Controls: []string{"SEC-AUTH-01"}}}
+	if len(findingsFor(&reqs[0], f)) != 0 {
+		t.Fatal("finding matched before the mapping was resolved")
+	}
+	resolveExplicit(reqs, nil, maps)
+	if reqs[0].FwID != "iso27001" || len(findingsFor(&reqs[0], f)) != 1 {
+		t.Errorf("A.8.9 not resolved: %+v", reqs[0])
+	}
+	if len(findingsFor(&reqs[1], f)) != 0 {
+		t.Error("unmapped row matched a finding")
+	}
+}
+
+func TestMatrixBroaderApplicableButMainNot(t *testing.T) {
+	s := &soa.SoA{Requirements: []soa.Requirement{
+		{AnnexA: "A.7.1", Title: "Perimeters", Applicable: soa.NotApplicable, Status: "not_applicable", Justification: "remote only",
+			BroaderScope: &soa.BroaderScope{Applicable: soa.Applicable, Status: "gap", Delta: soa.DeltaNewGap, Note: "platform"}},
+		{AnnexA: "A.7.2", Title: "Entry", Applicable: soa.NotApplicable, Status: "not_applicable", Justification: "remote only"},
+	}}
+	out := renderSoAMatrixPage(matrixPage{Title: "T", Reqs: matrixFromSoA(s), Repo: "o/r"})
+	applicable := out[strings.Index(out, "## Applicable requirements"):strings.Index(out, "<details>")]
+	if !strings.Contains(applicable, "Applicable requirements (1)") || !strings.Contains(applicable, "Perimeters") || strings.Contains(applicable, "Entry") {
+		t.Errorf("applicable list:\n%s", applicable)
+	}
+	if !strings.Contains(out, "Not applicable requirements (1)") {
+		t.Errorf("collapsed list should hold only the requirement not applicable in either scope:\n%s", out)
 	}
 }
