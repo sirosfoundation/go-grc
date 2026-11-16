@@ -157,6 +157,14 @@ has it the page adds a second, broader-scope matrix. The page uses raw HTML
 with string `style` attributes, so the Docusaurus site must set
 `markdown.format: 'md'` (the compliance site does) and not parse it as MDX.
 
+A requirement that applies and is `partial` or `gap` is expected to carry a
+plan: `activity` (what will be done), `owner` (a role), `target_date`
+(`YYYY-MM-DD`) and optionally `issue` (`org/repo#n`, linked on the matrix). A
+malformed date or issue is always an error. A missing activity, owner or date
+is a warning from `grc validate` while the statement is a `draft`, and an error
+once it is `in_review` or `approved`. The matrix shows the plan in three extra
+columns and marks a past target date; the plan is never on the public site.
+
 **Result** (`result.yaml`):
 
 ```yaml
