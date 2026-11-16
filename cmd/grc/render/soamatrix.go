@@ -256,8 +256,24 @@ func (r *matrixReq) inAnyScope() bool {
 	if !r.notApplicable() {
 		return true
 	}
-	b := r.Broader
-	return b != nil && b.Applicable != soa.NotApplicable && b.Applicable != "" && b.Status != "not_applicable"
+	bv := r.broaderView()
+	return r.Broader != nil && !bv.notApplicable()
+}
+
+// broaderView is the requirement as the broader scope sees it: the optional
+// broader fields laid over the main ones. The matrix, the summary and the
+// scope test all use it, so they agree.
+func (r *matrixReq) broaderView() matrixReq {
+	rr := *r
+	if b := r.Broader; b != nil {
+		if b.Status != "" {
+			rr.Status = b.Status
+		}
+		if b.Applicable != "" {
+			rr.Applicable = b.Applicable
+		}
+	}
+	return rr
 }
 
 // effective is the status the matrix shows: not applicable wins.
@@ -490,16 +506,7 @@ func renderSoAMatrixPage(p matrixPage) string {
 	if broader {
 		b.WriteString("Broader scope (including the deployment platform; requirements without broader-scope data count as in the main scope):\n\n")
 		summary(func(r *matrixReq) string {
-			if r.Broader == nil {
-				return r.effective()
-			}
-			rr := *r
-			if r.Broader.Status != "" {
-				rr.Status = r.Broader.Status
-			}
-			if r.Broader.Applicable != "" {
-				rr.Applicable = r.Broader.Applicable
-			}
+			rr := r.broaderView()
 			return rr.effective()
 		})
 	}
@@ -526,13 +533,7 @@ func renderSoAMatrixPage(p matrixPage) string {
 					b.WriteString(matrixCell(r, shortID(r.ID), r.effective(), r.Applicable, "", cellTip(r, r.effective(), r.Applicable, "same as main scope")))
 					continue
 				}
-				rr := *r
-				if bs.Status != "" {
-					rr.Status = bs.Status
-				}
-				if bs.Applicable != "" {
-					rr.Applicable = bs.Applicable
-				}
+				rr := r.broaderView()
 				extra := bs.Delta
 				if bs.Note != "" {
 					extra += ": " + bs.Note
@@ -574,7 +575,7 @@ func renderSoAMatrixPage(p matrixPage) string {
 		}
 		b.WriteString("\n" + sep + "\n")
 		for _, r := range rs {
-			label, icon, _, _ := statusStyle(r.Status)
+			label, icon, _, _ := statusStyle(r.effective())
 			st := icon + " " + label
 			if r.isGap() {
 				st = "⚠ " + st

@@ -263,3 +263,32 @@ func TestMatrixBroaderApplicableButMainNot(t *testing.T) {
 		t.Errorf("collapsed list should hold only the requirement not applicable in either scope:\n%s", out)
 	}
 }
+
+func TestMatrixScopeUsesTheMergedBroaderView(t *testing.T) {
+	s := &soa.SoA{Requirements: []soa.Requirement{
+		// Main: applicable but not_applicable status; broader overrides the status only.
+		{AnnexA: "A.1", Title: "StatusOnly", Applicable: soa.Applicable, Status: "not_applicable", Justification: "j",
+			BroaderScope: &soa.BroaderScope{Status: "gap"}},
+		// Both matrices show it as not applicable: an applicability-only override must not list it.
+		{AnnexA: "A.2", Title: "BothNA", Applicable: soa.NotApplicable, Status: "not_applicable", Justification: "j",
+			BroaderScope: &soa.BroaderScope{Applicable: soa.Applicable}},
+		// Out of scope in main with a gap status: the main label must say not applicable.
+		{AnnexA: "A.3", Title: "MainNAWithGap", Applicable: soa.NotApplicable, Status: "gap", Justification: "j",
+			BroaderScope: &soa.BroaderScope{Applicable: soa.Applicable, Status: "gap"}},
+	}}
+	out := renderSoAMatrixPage(matrixPage{Title: "T", Reqs: matrixFromSoA(s), Repo: "o/r"})
+	applicable := out[strings.Index(out, "## Applicable requirements"):strings.Index(out, "<details>")]
+	if !strings.Contains(applicable, "(2)") || !strings.Contains(applicable, "StatusOnly") || !strings.Contains(applicable, "MainNAWithGap") || strings.Contains(applicable, "BothNA") {
+		t.Errorf("applicable list:\n%s", applicable)
+	}
+	// The main status column of A.3 reads Not applicable, not Gap.
+	row := ""
+	for _, l := range strings.Split(applicable, "\n") {
+		if strings.Contains(l, "MainNAWithGap") {
+			row = l
+		}
+	}
+	if !strings.Contains(row, "– Not applicable") || strings.Contains(row, "✗ Gap |") {
+		t.Errorf("A.3 row = %s", row)
+	}
+}
